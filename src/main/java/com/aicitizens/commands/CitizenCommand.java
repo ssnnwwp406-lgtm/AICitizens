@@ -4,27 +4,28 @@ package com.aicitizens.commands;
 import com.aicitizens.AICitizens;
 import com.aicitizens.citizens.Citizen;
 import com.aicitizens.citizens.CitizenManager;
-import com.aicitizens.utils.RandomNames;
+import com.aicitizens.utils.SkinManager;
 
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Villager;
 
+import java.util.Arrays;
 import java.util.UUID;
 
 public class CitizenCommand implements CommandExecutor {
 
     private final AICitizens plugin;
     private final CitizenManager manager;
-    private final RandomNames randomNames;
 
     public CitizenCommand(AICitizens plugin, CitizenManager manager) {
         this.plugin = plugin;
         this.manager = manager;
-        this.randomNames = new RandomNames(plugin, manager);
     }
 
     private String color(String message) {
@@ -32,11 +33,7 @@ public class CitizenCommand implements CommandExecutor {
     }
 
     private void send(CommandSender sender, String message) {
-        String prefix = plugin.getConfig().getString(
-                "messages.prefix", "&8[&aAICitizens&8]"
-        );
-
-        sender.sendMessage(color(prefix + " " + message));
+        sender.sendMessage(color("&a[AICitizens] &f" + message));
     }
 
     @Override
@@ -53,13 +50,11 @@ public class CitizenCommand implements CommandExecutor {
         }
 
         if (args.length == 0) {
-            send(sender, "&e/aic create [name]");
-            send(sender, "&e/aic remove <UUID>");
-            send(sender, "&e/aic list");
-            send(sender, "&e/aic count");
-            send(sender, "&e/aic location add <name>");
-            send(sender, "&e/aic location list");
-            send(sender, "&e/aic location remove <name>");
+            send(sender, "&eCommands:");
+            send(sender, "&7/aic create <name> <skin>");
+            send(sender, "&7/aic remove <UUID>");
+            send(sender, "&7/aic list");
+            send(sender, "&7/aic count");
             return true;
         }
 
@@ -72,28 +67,67 @@ public class CitizenCommand implements CommandExecutor {
                     return true;
                 }
 
-                String name;
-
-                if (args.length >= 2) {
-                    name = String.join(" ", java.util.Arrays.copyOfRange(
-                            args, 1, args.length
-                    ));
-                } else {
-                    name = randomNames.generate();
-                }
-
-                Citizen citizen = manager.createCitizen(
-                        name,
-                        player.getLocation()
-                );
-
-                if (citizen == null) {
-                    send(sender, "&cCould not create citizen. Check max-count and spawn settings.");
+                if (args.length < 3) {
+                    send(sender, "&cUsage: /aic create <name> <skin>");
                     return true;
                 }
 
-                send(sender, "&aCreated citizen: &f" + name);
-                send(sender, "&7UUID: &f" + citizen.getId());
+                String skinName = args[args.length - 1];
+
+                String citizenName = String.join(
+                        " ",
+                        Arrays.copyOfRange(args, 1, args.length - 1)
+                );
+
+                Location spawnLocation = player.getLocation().clone();
+
+                send(sender, "&eLoading Minecraft skin for &f" + skinName + "&e...");
+
+                plugin.getSkinManager().getSkin(skinName)
+                        .whenComplete((skin, error) -> {
+
+                            Bukkit.getScheduler().runTask(plugin, () -> {
+
+                                if (!player.isOnline()) return;
+
+                                if (error != null) {
+                                    send(player, "&cCould not load skin: "
+                                            + error.getMessage());
+                                    return;
+                                }
+
+                                Citizen citizen = manager.createCitizen(
+                                        citizenName,
+                                        spawnLocation
+                                );
+
+                                if (citizen == null) {
+                                    send(player, "&cCould not create citizen. Check max-count and spawn settings.");
+                                    return;
+                                }
+
+                                boolean created = plugin.getCitizenNpcManager()
+                                        .createNpc(citizen, skin);
+
+                                if (!created) {
+                                    manager.removeCitizen(citizen.getId());
+                                    send(player, "&cCould not create the NPC.");
+                                    return;
+                                }
+
+                                if (citizen.getEntity() instanceof Villager villager) {
+                                    villager.setInvisible(true);
+                                    villager.setCustomNameVisible(false);
+                                    villager.setSilent(false);
+                                }
+
+                                send(player, "&aCitizen created successfully!");
+                                send(player, "&7Name: &f" + citizenName);
+                                send(player, "&7Skin: &f" + skinName);
+                                send(player, "&7UUID: &f" + citizen.getId());
+                            });
+                        });
+
                 return true;
             }
 
@@ -120,110 +154,38 @@ public class CitizenCommand implements CommandExecutor {
                     return true;
                 }
 
-                String citizenName = citizen.getName();
+                plugin.getCitizenNpcManager().removeNpc(id);
+                plugin.getMessageManager().removeCitizen(id);
 
-                if (!manager.removeCitizen(id)) {
-                    send(sender, "&cCould not remove citizen.");
-                    return true;
-                }
+                manager.removeCitizen(id);
 
-                randomNames.release(citizenName);
-
-                send(sender, "&aRemoved citizen: &f" + citizenName);
+                send(sender, "&aCitizen removed successfully!");
                 return true;
             }
 
             case "list" -> {
 
-                send(sender, "&aCitizens: &f" + manager.getCitizenCount());
+                send(sender, "&eCitizens:");
+
+                if (manager.getCitizens().isEmpty()) {
+                    send(sender, "&7No citizens found.");
+                    return true;
+                }
 
                 for (Citizen citizen : manager.getCitizens()) {
-                    send(sender, "&7- &f" + citizen.getName()
-                            + " &8(&7" + citizen.getId() + "&8)");
+                    send(sender, "&f" + citizen.getName()
+                            + " &7- &f" + citizen.getId());
                 }
 
                 return true;
             }
 
             case "count" -> {
-                send(sender, "&aCitizen count: &f" + manager.getCitizenCount());
+
+                send(sender, "&eCitizen count: &f"
+                        + manager.getCitizenCount());
+
                 return true;
-            }
-
-            case "location" -> {
-
-                if (args.length < 2) {
-                    send(sender, "&cUsage: /aic location <add|list|remove>");
-                    return true;
-                }
-
-                switch (args[1].toLowerCase()) {
-
-                    case "add" -> {
-
-                        if (!(sender instanceof Player player)) {
-                            send(sender, "&cOnly players can add locations.");
-                            return true;
-                        }
-
-                        if (args.length < 3) {
-                            send(sender, "&cUsage: /aic location add <name>");
-                            return true;
-                        }
-
-                        String locationName = String.join(
-                                " ",
-                                java.util.Arrays.copyOfRange(args, 2, args.length)
-                        );
-
-                        Location location = player.getLocation();
-
-                        if (!manager.addDestination(locationName, location)) {
-                            send(sender, "&cCould not add destination.");
-                            return true;
-                        }
-
-                        send(sender, "&aDestination added: &f" + locationName);
-                        return true;
-                    }
-
-                    case "list" -> {
-
-                        send(sender, "&aSaved destinations:");
-
-                        for (String name : manager.getDestinationNames()) {
-                            send(sender, "&7- &f" + name);
-                        }
-
-                        return true;
-                    }
-
-                    case "remove" -> {
-
-                        if (args.length < 3) {
-                            send(sender, "&cUsage: /aic location remove <name>");
-                            return true;
-                        }
-
-                        String locationName = String.join(
-                                " ",
-                                java.util.Arrays.copyOfRange(args, 2, args.length)
-                        );
-
-                        if (!manager.removeDestination(locationName)) {
-                            send(sender, "&cDestination not found.");
-                            return true;
-                        }
-
-                        send(sender, "&aDestination removed: &f" + locationName);
-                        return true;
-                    }
-
-                    default -> {
-                        send(sender, "&cUnknown location subcommand.");
-                        return true;
-                    }
-                }
             }
 
             default -> {
