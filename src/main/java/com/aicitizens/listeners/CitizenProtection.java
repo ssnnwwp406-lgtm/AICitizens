@@ -1,86 +1,135 @@
 
 package com.aicitizens.listeners;
 
+import com.aicitizens.AICitizens;
 import com.aicitizens.citizens.CitizenManager;
 
 import org.bukkit.entity.Entity;
-import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityCombustEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
-import org.bukkit.event.player.PlayerInteractEntityEvent;
-import org.bukkit.event.player.PlayerInteractAtEntityEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
 
 import java.util.UUID;
 
 public class CitizenProtection implements Listener {
 
+    private final AICitizens plugin;
     private final CitizenManager manager;
 
-    public CitizenProtection(CitizenManager manager) {
+    public CitizenProtection(
+            AICitizens plugin,
+            CitizenManager manager
+    ) {
+        this.plugin = plugin;
         this.manager = manager;
     }
 
     private boolean isCitizen(Entity entity) {
-        if (entity == null) return false;
+
+        if (entity == null) {
+            return false;
+        }
 
         UUID id = entity.getUniqueId();
 
         return manager.getCitizen(id) != null;
     }
 
+    // ==========================================
+    //              DAMAGE PROTECTION
+    // ==========================================
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onDamage(EntityDamageEvent event) {
+
+        if (!plugin.getConfig().getBoolean(
+                "protection.damage", true
+        )) {
+            return;
+        }
 
         if (isCitizen(event.getEntity())) {
             event.setCancelled(true);
         }
     }
+
+    // ==========================================
+    //              INTERACTION PROTECTION
+    // ==========================================
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInteract(PlayerInteractEntityEvent event) {
 
-        if (isCitizen(event.getRightClicked())) {
-            event.setCancelled(true);
+        if (!plugin.getConfig().getBoolean(
+                "protection.interaction", true
+        )) {
+            return;
         }
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onInteractAt(PlayerInteractAtEntityEvent event) {
 
         if (isCitizen(event.getRightClicked())) {
             event.setCancelled(true);
         }
     }
+
+    // ==========================================
+    //              FIRE PROTECTION
+    // ==========================================
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onCombust(EntityCombustEvent event) {
 
+        if (!plugin.getConfig().getBoolean(
+                "protection.fire", true
+        )) {
+            return;
+        }
+
         if (isCitizen(event.getEntity())) {
             event.setCancelled(true);
         }
     }
+
+    // ==========================================
+    //              TARGET PROTECTION
+    // ==========================================
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onTarget(EntityTargetEvent event) {
 
-        if (isCitizen(event.getEntity())) {
-            event.setCancelled(true);
+        if (!plugin.getConfig().getBoolean(
+                "protection.targeting", true
+        )) {
+            return;
         }
 
-        if (event.getTarget() != null &&
-            isCitizen(event.getTarget())) {
+        if (isCitizen(event.getEntity())) {
+            event.setCancelled(true);
+            return;
+        }
+
+        if (event.getTarget() != null
+                && isCitizen(event.getTarget())) {
             event.setCancelled(true);
         }
     }
 
+    // ==========================================
+    //              ITEM PICKUP PROTECTION
+    // ==========================================
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPickup(EntityPickupItemEvent event) {
+
+        if (!plugin.getConfig().getBoolean(
+                "protection.item-pickup", true
+        )) {
+            return;
+        }
 
         if (isCitizen(event.getEntity())) {
             event.setCancelled(true);
