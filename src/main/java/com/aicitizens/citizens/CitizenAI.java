@@ -2,6 +2,7 @@
 package com.aicitizens.citizens;
 
 import com.aicitizens.AICitizens;
+
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -20,6 +21,7 @@ public class CitizenAI extends BukkitRunnable {
     private final AICitizens plugin;
     private final CitizenManager manager;
     private final CitizenMessageManager messageManager;
+    private final CitizenNpcManager npcManager;
 
     private int tick = 0;
 
@@ -31,6 +33,7 @@ public class CitizenAI extends BukkitRunnable {
         this.plugin = plugin;
         this.manager = manager;
         this.messageManager = messageManager;
+        this.npcManager = plugin.getCitizenNpcManager();
     }
 
     @Override
@@ -61,14 +64,14 @@ public class CitizenAI extends BukkitRunnable {
             if (!villager.getWorld().isChunkLoaded(
                     villager.getLocation().getBlockX() >> 4,
                     villager.getLocation().getBlockZ() >> 4
-            )) continue;
+            )) {
+                continue;
+            }
 
             if (!citizen.isMoving()) {
-
                 if (tick % selectionInterval == 0) {
                     chooseRandomDestination(citizen);
                 }
-
                 continue;
             }
 
@@ -86,9 +89,8 @@ public class CitizenAI extends BukkitRunnable {
 
         for (int attempt = 0; attempt < 40; attempt++) {
 
-            double angle = ThreadLocalRandom.current().nextDouble(
-                    0, Math.PI * 2
-            );
+            double angle = ThreadLocalRandom.current()
+                    .nextDouble(0, Math.PI * 2);
 
             double distance = Math.sqrt(
                     ThreadLocalRandom.current().nextDouble()
@@ -100,9 +102,7 @@ public class CitizenAI extends BukkitRunnable {
             int z = spawn.getBlockZ()
                     + (int) Math.round(Math.sin(angle) * distance);
 
-            if (!world.isChunkLoaded(x >> 4, z >> 4)) {
-                continue;
-            }
+            if (!world.isChunkLoaded(x >> 4, z >> 4)) continue;
 
             int y = world.getHighestBlockYAt(x, z) + 1;
 
@@ -121,6 +121,7 @@ public class CitizenAI extends BukkitRunnable {
 
             citizen.setDestination(target);
             citizen.setMoving(true);
+
             return;
         }
     }
@@ -132,9 +133,7 @@ public class CitizenAI extends BukkitRunnable {
         Block head = location.clone().add(0, 1, 0).getBlock();
 
         if (!floor.getType().isSolid()) return false;
-
         if (!feet.isPassable() || !head.isPassable()) return false;
-
         if (feet.isLiquid() || head.isLiquid()) return false;
 
         Material floorType = floor.getType();
@@ -158,6 +157,7 @@ public class CitizenAI extends BukkitRunnable {
 
         if (destination == null
                 || !destination.getWorld().equals(villager.getWorld())) {
+
             citizen.setMoving(false);
             return;
         }
@@ -176,13 +176,11 @@ public class CitizenAI extends BukkitRunnable {
 
         direction.normalize();
 
-        double speed = plugin.getConfig().getDouble(
-                "movement.speed", 0.25
-        );
+        double speed = plugin.getConfig()
+                .getDouble("movement.speed", 0.25);
 
-        Location next = current.clone().add(
-        direction.clone().multiply(speed)
-        );
+        Location next = current.clone()
+                .add(direction.clone().multiply(speed));
 
         int x = next.getBlockX();
         int z = next.getBlockZ();
@@ -221,6 +219,9 @@ public class CitizenAI extends BukkitRunnable {
         ));
 
         villager.teleport(next);
+
+        // Synchronize the visible player NPC with the hidden villager.
+        npcManager.updateNpc(citizen.getId(), next);
     }
 
     private void arrive(Citizen citizen) {
