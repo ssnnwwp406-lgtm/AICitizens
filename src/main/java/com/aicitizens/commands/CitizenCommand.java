@@ -1,10 +1,8 @@
-
 package com.aicitizens.commands;
 
 import com.aicitizens.AICitizens;
 import com.aicitizens.citizens.Citizen;
 import com.aicitizens.citizens.CitizenManager;
-import com.aicitizens.utils.SkinManager;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -37,13 +35,7 @@ public class CitizenCommand implements CommandExecutor {
     }
 
     @Override
-    public boolean onCommand(
-            CommandSender sender,
-            Command command,
-            String label,
-            String[] args
-    ) {
-
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!sender.hasPermission("aicitizens.admin")) {
             send(sender, "&cYou don't have permission.");
             return true;
@@ -59,87 +51,65 @@ public class CitizenCommand implements CommandExecutor {
         }
 
         switch (args[0].toLowerCase()) {
-
             case "create" -> {
-
                 if (!(sender instanceof Player player)) {
                     send(sender, "&cOnly players can create citizens.");
                     return true;
                 }
-
                 if (args.length < 3) {
                     send(sender, "&cUsage: /aic create <name> <skin>");
                     return true;
                 }
 
                 String skinName = args[args.length - 1];
-
-                String citizenName = String.join(
-                        " ",
-                        Arrays.copyOfRange(args, 1, args.length - 1)
-                );
-
+                String citizenName = String.join(" ",
+                        Arrays.copyOfRange(args, 1, args.length - 1));
                 Location spawnLocation = player.getLocation().clone();
 
-                send(sender, "&eLoading Minecraft skin for &f" + skinName + "&e...");
+                send(player, "&eLoading Minecraft skin for &f" + skinName + "&e...");
+                plugin.getSkinManager().getSkin(skinName).whenComplete((skin, error) ->
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            if (!player.isOnline()) return;
+                            if (error != null) {
+                                send(player, "&cCould not load skin: " + error.getMessage());
+                                return;
+                            }
 
-                plugin.getSkinManager().getSkin(skinName)
-                        .whenComplete((skin, error) -> {
+                            Citizen citizen = manager.createCitizen(citizenName, skinName, spawnLocation);
+                            if (citizen == null) {
+                                send(player, "&cCould not create citizen. Check max-count and spawn settings.");
+                                return;
+                            }
 
-                            Bukkit.getScheduler().runTask(plugin, () -> {
+                            boolean created = plugin.getCitizenNpcManager().createNpc(citizen, skin);
+                            if (!created) {
+                                manager.removeCitizen(citizen.getId());
+                                send(player, "&cCould not create the NPC.");
+                                return;
+                            }
 
-                                if (!player.isOnline()) return;
+                            if (citizen.getEntity() instanceof Villager villager) {
+                                villager.setInvisible(true);
+                                villager.setCustomNameVisible(false);
+                                villager.setSilent(false);
+                            }
 
-                                if (error != null) {
-                                    send(player, "&cCould not load skin: "
-                                            + error.getMessage());
-                                    return;
-                                }
-
-                                Citizen citizen = manager.createCitizen(
-                                        citizenName,
-                                        spawnLocation
-                                );
-
-                                if (citizen == null) {
-                                    send(player, "&cCould not create citizen. Check max-count and spawn settings.");
-                                    return;
-                                }
-
-                                boolean created = plugin.getCitizenNpcManager()
-                                        .createNpc(citizen, skin);
-
-                                if (!created) {
-                                    manager.removeCitizen(citizen.getId());
-                                    send(player, "&cCould not create the NPC.");
-                                    return;
-                                }
-
-                                if (citizen.getEntity() instanceof Villager villager) {
-                                    villager.setInvisible(true);
-                                    villager.setCustomNameVisible(false);
-                                    villager.setSilent(false);
-                                }
-
-                                send(player, "&aCitizen created successfully!");
-                                send(player, "&7Name: &f" + citizenName);
-                                send(player, "&7Skin: &f" + skinName);
-                                send(player, "&7UUID: &f" + citizen.getId());
-                            });
-                        });
-
+                            send(player, "&aCitizen created successfully!");
+                            send(player, "&7Name: &f" + citizenName);
+                            send(player, "&7Skin: &f" + skinName);
+                            send(player, "&7UUID: &f" + citizen.getId());
+                        })
+                );
                 return true;
             }
 
             case "remove" -> {
-
                 if (args.length < 2) {
                     send(sender, "&cUsage: /aic remove <UUID>");
                     return true;
                 }
 
                 UUID id;
-
                 try {
                     id = UUID.fromString(args[1]);
                 } catch (IllegalArgumentException exception) {
@@ -148,7 +118,6 @@ public class CitizenCommand implements CommandExecutor {
                 }
 
                 Citizen citizen = manager.getCitizen(id);
-
                 if (citizen == null) {
                     send(sender, "&cCitizen not found.");
                     return true;
@@ -156,35 +125,26 @@ public class CitizenCommand implements CommandExecutor {
 
                 plugin.getCitizenNpcManager().removeNpc(id);
                 plugin.getMessageManager().removeCitizen(id);
-
                 manager.removeCitizen(id);
-
                 send(sender, "&aCitizen removed successfully!");
                 return true;
             }
 
             case "list" -> {
-
                 send(sender, "&eCitizens:");
-
                 if (manager.getCitizens().isEmpty()) {
                     send(sender, "&7No citizens found.");
                     return true;
                 }
 
                 for (Citizen citizen : manager.getCitizens()) {
-                    send(sender, "&f" + citizen.getName()
-                            + " &7- &f" + citizen.getId());
+                    send(sender, "&f" + citizen.getName() + " &7- &f" + citizen.getId());
                 }
-
                 return true;
             }
 
             case "count" -> {
-
-                send(sender, "&eCitizen count: &f"
-                        + manager.getCitizenCount());
-
+                send(sender, "&eCitizen count: &f" + manager.getCitizenCount());
                 return true;
             }
 
