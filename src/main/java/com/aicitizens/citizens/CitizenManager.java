@@ -129,8 +129,8 @@ public class CitizenManager {
 
     public void saveCitizens() {
         // Keep records that could not be restored (for example, while Mojang is unavailable).
-        storageKeys.clear();
-
+        // A restored Villager receives a new runtime UUID, so replace its previous storage key
+        // instead of leaving the old record behind and duplicating it on the next restart.
         for (Citizen citizen : citizens.values()) {
             if (!citizen.isValid()) continue;
 
@@ -138,8 +138,14 @@ public class CitizenManager {
             World world = location.getWorld();
             if (world == null) continue;
 
-            String path = "citizens." + citizen.getId();
-            storageKeys.put(citizen.getId(), citizen.getId().toString());
+            String currentKey = citizen.getId().toString();
+            String previousKey = storageKeys.get(citizen.getId());
+            if (previousKey != null && !previousKey.equals(currentKey)) {
+                data.set("citizens." + previousKey, null);
+            }
+
+            String path = "citizens." + currentKey;
+            storageKeys.put(citizen.getId(), currentKey);
             data.set(path + ".name", citizen.getName());
             data.set(path + ".skin", citizen.getSkinName());
             data.set(path + ".world", world.getName());
