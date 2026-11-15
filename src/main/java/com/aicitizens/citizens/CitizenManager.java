@@ -1,13 +1,19 @@
-
 package com.aicitizens.citizens;
 
 import com.aicitizens.AICitizens;
+import com.aicitizens.utils.SkinManager;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Villager;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -17,99 +23,145 @@ import java.util.UUID;
 public class CitizenManager {
 
     private final AICitizens plugin;
-
     private final Map<UUID, Citizen> citizens = new HashMap<>();
+    private final File dataFile;
+    private final YamlConfiguration data;
 
     public CitizenManager(AICitizens plugin) {
         this.plugin = plugin;
+        this.dataFile = new File(plugin.getDataFolder(), "citizens.yml");
+        if (!plugin.getDataFolder().exists()) {
+            plugin.getDataFolder().mkdirs();
+        }
+        this.data = YamlConfiguration.loadConfiguration(dataFile);
     }
 
-    public Citizen createCitizen(String name, Location location) {
+    public Citizen createCitizen(String name, String skinName, Location location) {
+        if (!plugin.getConfig().getBoolean("citizens.spawn.enabled", true)) return null;
 
-        if (!plugin.getConfig().getBoolean("citizens.spawn.enabled", true)) {
-            return null;
-        }
+        int maxCount = Math.max(1, plugin.getConfig().getInt("citizens.max-count", 50));
+        if (citizens.size() >= maxCount) return null;
+        if (name == null || name.isBlank() || skinName == null || skinName.isBlank()) return null;
+        if (location == null || location.getWorld() == null) return null;
 
-        int maxCount = plugin.getConfig().getInt("citizens.max-count", 50);
-
-        if (citizens.size() >= maxCount) {
-            return null;
-        }
-
-        if (name == null || name.isBlank()) {
-            return null;
-        }
-
-        if (location == null || location.getWorld() == null) {
-            return null;
-        }
-
-        String entityType = plugin.getConfig()
-                .getString("citizens.appearance.type", "VILLAGER");
-
+        String entityType = plugin.getConfig().getString("citizens.appearance.type", "VILLAGER");
         if (!"VILLAGER".equalsIgnoreCase(entityType)) {
-            plugin.getLogger().warning(
-                    "Unsupported citizen type: " + entityType
-            );
+            plugin.getLogger().warning("Unsupported citizen type: " + entityType);
             return null;
         }
 
-        Villager villager = (Villager) location.getWorld()
-                .spawnEntity(location, EntityType.VILLAGER);
-
+        Villager villager = (Villager) location.getWorld().spawnEntity(location, EntityType.VILLAGER);
         villager.setCustomName(name);
         villager.setCustomNameVisible(false);
         villager.setInvisible(true);
+        // Keep the villager non-silent so its ambient sounds remain unchanged.
         villager.setSilent(false);
-
-        villager.setInvulnerable(
-                plugin.getConfig().getBoolean(
-                        "citizens.appearance.invulnerable", true
-                )
-        );
-
-        villager.setCollidable(
-                plugin.getConfig().getBoolean(
-                        "citizens.appearance.collidable", false
-                )
-        );
-
-        villager.setPersistent(
-                plugin.getConfig().getBoolean(
-                        "citizens.appearance.persistent", true
-                )
-        );
-
+        villager.setInvulnerable(plugin.getConfig().getBoolean("citizens.appearance.invulnerable", true));
+        villager.setCollidable(plugin.getConfig().getBoolean("citizens.appearance.collidable", false));
+        villager.setPersistent(true);
         villager.setAI(false);
 
         UUID id = villager.getUniqueId();
-
-        Citizen citizen = new Citizen(
-                id,
-                name,
-                villager,
-                location
-        );
-
+        Citizen citizen = new Citizen(id, name, skinName, villager, location);
         citizens.put(id, citizen);
-
         return citizen;
     }
 
-    public boolean removeCitizen(UUID id) {
+    public void restoreSavedCitizens() {
+        ConfigurationSection section = data.getConfigurationSection("citizens");
+        if (section == null) return;
 
-        Citizen citizen = citizens.remove(id);
+        int restored = 0;
+        for (String key : section.getKeys(false)) {
+            if (citizens.size() >= Math.max(1, plugin.getConfig().getInt("citizens.max-count", 50))) break;
 
-        if (citizen == null) {
-            return false;
+            ConfigurationSection saved = section.getConfigurationSection(key);
+            if (saved == null) continue;
+
+            String name = saved.getString("name");
+            String skinName = saved.getString("skin");
+            String worldName = saved.getString("world");
+            World world = worldName == null ? null : Bukkit.getWorld(worldName);
+            if (name == null || skinName == null || world == null) {
+                plugin.getLogger().warning("Skipping saved citizen " + key + ": missing name, skin, or world.");
+                continue;
+            }
+
+            Location location = new Location(
+                    world,
+                    saved.getDouble("x"),
+                    saved.getDouble("y"),
+                    saved.getDouble("z"),
+                    (float) saved.getDouble("yaw"),
+                    (float) saved.getDouble("pitch")
+            );
+
+            plugin.getSkinManager().getSkin(skinName).whenComplete((skin, error) ->
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (error != null) {
+                            plugin.getLogger().warning("Could not restore citizen " + name
+                                    + " skin " + skinName + ": " + error.getMessage());
+                            return;
+                        }
+
+                        Citizen citizen = createCitizen(name, skinName, location);
+                        if (citizen == null) return;
+
+                        if (!plugin.getCitizenNpcManager().createNpc(citizen, skin)) {
+                            removeCitizen(citizen.getId());
+                            plugin.getLogger().warning("Could not create NPC for restored citizen " + name);
+                        }
+                    })
+            );
+            restored++;
         }
+
+        if (restored > 0) {
+            plugin.getLogger().info("Queued " + restored + " saved citizens for restoration.");
+        }
+    }
+
+    public void saveCitizens() {
+        data.set("citizens", null);
+
+        for (Citizen citizen : citizens.values()) {
+            if (!citizen.isValid()) continue;
+
+            Location location = citizen.getSpawnLocation();
+            World world = location.getWorld();
+            if (world == null) continue;
+
+            String path = "citizens." + citizen.getId();
+            data.set(path + ".name", citizen.getName());
+            data.set(path + ".skin", citizen.getSkinName());
+            data.set(path + ".world", world.getName());
+            data.set(path + ".x", location.getX());
+            data.set(path + ".y", location.getY());
+            data.set(path + ".z", location.getZ());
+            data.set(path + ".yaw", location.getYaw());
+            data.set(path + ".pitch", location.getPitch());
+        }
+
+        try {
+            data.save(dataFile);
+        } catch (IOException exception) {
+            plugin.getLogger().severe("Could not save citizens.yml: " + exception.getMessage());
+        }
+    }
+
+    public boolean removeCitizen(UUID id) {
+        Citizen citizen = citizens.remove(id);
+        if (citizen == null) return false;
 
         Entity entity = citizen.getEntity();
+        if (entity != null && entity.isValid()) entity.remove();
 
-        if (entity != null && entity.isValid()) {
-            entity.remove();
+        data.set("citizens." + id, null);
+        try {
+            data.save(dataFile);
+        } catch (IOException exception) {
+            plugin.getLogger().warning("Could not update citizens.yml: " + exception.getMessage());
         }
-
         return true;
     }
 
@@ -126,21 +178,13 @@ public class CitizenManager {
     }
 
     public void shutdown() {
+        saveCitizens();
 
-        boolean removeOnDisable = plugin.getConfig()
-                .getBoolean("citizens.spawn.remove-on-disable", true);
-
-        if (removeOnDisable) {
-            for (Citizen citizen : citizens.values()) {
-
-                Entity entity = citizen.getEntity();
-
-                if (entity != null && entity.isValid()) {
-                    entity.remove();
-                }
-            }
+        // Remove runtime entities after saving; they are recreated from citizens.yml next startup.
+        for (Citizen citizen : citizens.values()) {
+            Entity entity = citizen.getEntity();
+            if (entity != null && entity.isValid()) entity.remove();
         }
-
         citizens.clear();
     }
 }
