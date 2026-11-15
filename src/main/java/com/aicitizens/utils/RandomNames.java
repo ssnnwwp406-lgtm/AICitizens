@@ -1,48 +1,68 @@
 
-package com.aicitizens.utils;
+package com.aicitizens;
 
-import java.util.Random;
+import org.bukkit.plugin.java.JavaPlugin;
 
-public final class RandomNames {
+import com.aicitizens.citizens.CitizenManager;
+import com.aicitizens.citizens.CitizenAI;
+import com.aicitizens.commands.CitizenCommand;
+import com.aicitizens.listeners.CitizenProtection;
 
-    private static final Random RANDOM = new Random();
+public final class AICitizens extends JavaPlugin {
 
-    private static final String[] FIRST_NAMES = {
-        "James", "John", "Robert", "Michael",
-        "William", "David", "Richard", "Joseph",
-        "Thomas", "Charles", "Daniel", "Matthew",
-        "Anthony", "Mark", "Donald", "Steven",
-        "Paul", "Andrew", "Joshua", "Kenneth",
-        "Emily", "Olivia", "Sophia", "Emma",
-        "Ava", "Isabella", "Mia", "Charlotte",
-        "Amelia", "Harper", "Evelyn", "Abigail",
-        "Elizabeth", "Sofia", "Grace", "Chloe"
-    };
+    private CitizenManager citizenManager;
+    private CitizenAI citizenAI;
 
-    private static final String[] LAST_NAMES = {
-        "Smith", "Johnson", "Williams", "Brown",
-        "Jones", "Garcia", "Miller", "Davis",
-        "Rodriguez", "Martinez", "Wilson", "Anderson",
-        "Taylor", "Thomas", "Moore", "Jackson",
-        "Martin", "Lee", "Perez", "Thompson",
-        "White", "Harris", "Clark", "Lewis",
-        "Robinson", "Walker", "Young", "Allen",
-        "King", "Wright", "Scott", "Green"
-    };
+    @Override
+    public void onEnable() {
 
-    private RandomNames() {
+        saveDefaultConfig();
+
+        reloadConfig();
+
+        citizenManager = new CitizenManager(this);
+
+        citizenAI = new CitizenAI(this, citizenManager);
+
+        if (getConfig().getBoolean("movement.enabled", true)) {
+            citizenAI.start();
+        }
+
+        getServer().getPluginManager().registerEvents(
+                new CitizenProtection(this, citizenManager),
+                this
+        );
+
+        if (getCommand("aic") != null) {
+            getCommand("aic").setExecutor(
+                    new CitizenCommand(citizenManager)
+            );
+        } else {
+            getLogger().severe(
+                    "Command 'aic' is missing from plugin.yml!"
+            );
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+
+        getLogger().info("AICitizens enabled successfully!");
     }
 
-    public static String generate() {
+    @Override
+    public void onDisable() {
 
-        String firstName = FIRST_NAMES[
-            RANDOM.nextInt(FIRST_NAMES.length)
-        ];
+        if (citizenAI != null) {
+            citizenAI.cancel();
+        }
 
-        String lastName = LAST_NAMES[
-            RANDOM.nextInt(LAST_NAMES.length)
-        ];
+        if (citizenManager != null) {
+            citizenManager.shutdown();
+        }
 
-        return firstName + " " + lastName;
+        getLogger().info("AICitizens disabled!");
+    }
+
+    public CitizenManager getCitizenManager() {
+        return citizenManager;
     }
 }
