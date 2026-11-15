@@ -53,14 +53,15 @@ public class CitizenManager {
 
         Villager villager = (Villager) location.getWorld().spawnEntity(location, EntityType.VILLAGER);
         villager.setCustomName(name);
-        villager.setCustomNameVisible(false);
+        villager.setCustomNameVisible(plugin.getConfig().getBoolean(
+                "citizens.appearance.custom-name-visible", false));
         villager.setInvisible(true);
         // Keep the villager non-silent so its ambient sounds remain unchanged.
         villager.setSilent(false);
         villager.setInvulnerable(plugin.getConfig().getBoolean("citizens.appearance.invulnerable", true));
         villager.setCollidable(plugin.getConfig().getBoolean("citizens.appearance.collidable", false));
-        villager.setPersistent(true);
-        villager.setAI(false);
+        villager.setPersistent(plugin.getConfig().getBoolean("citizens.appearance.persistent", true));
+        villager.setAI(plugin.getConfig().getBoolean("citizens.appearance.ai-enabled", false));
 
         UUID id = villager.getUniqueId();
         Citizen citizen = new Citizen(id, name, skinName, villager, location);
