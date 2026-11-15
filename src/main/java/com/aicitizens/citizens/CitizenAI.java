@@ -181,7 +181,7 @@ public class CitizenAI extends BukkitRunnable {
         );
 
         Location next = current.clone().add(
-                direction.multiply(speed), new Vector()
+        direction.clone().multiply(speed)
         );
 
         int x = next.getBlockX();
