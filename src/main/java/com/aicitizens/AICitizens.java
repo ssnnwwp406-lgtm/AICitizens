@@ -18,22 +18,32 @@ public final class AICitizens extends JavaPlugin {
 
         saveDefaultConfig();
 
-        // Initialize citizen manager
+        reloadConfig();
+
         citizenManager = new CitizenManager(this);
 
-        // Initialize AI movement system
         citizenAI = new CitizenAI(this, citizenManager);
-        citizenAI.start();
 
-        // Register protection listener
+        if (getConfig().getBoolean("movement.enabled", true)) {
+            citizenAI.start();
+        }
+
         getServer().getPluginManager().registerEvents(
-                new CitizenProtection(citizenManager), this
+                new CitizenProtection(this, citizenManager),
+                this
         );
 
-        // Register command
-        getCommand("aic").setExecutor(
-                new CitizenCommand(citizenManager)
-        );
+        if (getCommand("aic") != null) {
+            getCommand("aic").setExecutor(
+                    new CitizenCommand(citizenManager)
+            );
+        } else {
+            getLogger().severe(
+                    "Command 'aic' is missing from plugin.yml!"
+            );
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
 
         getLogger().info("AICitizens enabled successfully!");
     }
