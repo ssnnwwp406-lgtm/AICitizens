@@ -1,0 +1,305 @@
+
+package com.aicitizens.citizens;
+
+import com.aicitizens.AICitizens;
+import com.aicitizens.utils.SkinManager;
+
+import com.github.retrooper.packetevents.PacketEvents;
+import com.github.retrooper.packetevents.protocol.npc.NPC;
+import com.github.retrooper.packetevents.protocol.player.GameMode;
+import com.github.retrooper.packetevents.protocol.player.TextureProperty;
+import com.github.retrooper.packetevents.protocol.player.UserProfile;
+import com.github.retrooper.packetevents.protocol.world.Location;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerInfoRemove;
+
+import net.kyori.adventure.text.Component;
+
+import org.bukkit.Bukkit;
+import org.bukkit.World;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerChangedWorldEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public class CitizenNpcManager implements Listener {
+
+    private static final AtomicInteger NEXT_ENTITY_ID =
+            new AtomicInteger(1_000_000_000);
+
+    private final AICitizens plugin;
+
+    private final Map<UUID, NpcEntry> npcs =
+            new HashMap<>();
+
+    public CitizenNpcManager(AICitizens plugin) {
+
+        this.plugin = plugin;
+
+        Bukkit.getPluginManager().registerEvents(this, plugin);
+    }
+
+    public boolean createNpc(Citizen citizen, SkinManager.SkinData skin) {
+
+        if (citizen == null || skin == null || !citizen.isValid()) {
+            return false;
+        }
+
+        if (npcs.containsKey(citizen.getId())) {
+            return false;
+        }
+
+        org.bukkit.Location bukkitLocation =
+                citizen.getEntity().getLocation();
+
+        String profileName = createProfileName(citizen.getName());
+
+        UUID npcUUID = UUID.randomUUID();
+
+        List<TextureProperty> textures = new ArrayList<>();
+
+        textures.add(new TextureProperty(
+                "textures",
+                skin.getTexture(),
+                skin.getSignature()
+        ));
+
+        UserProfile profile = new UserProfile(
+                npcUUID,
+                profileName,
+                textures
+        );
+
+        NPC npc = new NPC(
+                profile,
+                NEXT_ENTITY_ID.getAndIncrement(),
+                Component.text(citizen.getName())
+        );
+
+        npc.setLocation(toPacketLocation(bukkitLocation));
+
+        NpcEntry entry = new NpcEntry(
+                npc,
+                bukkitLocation.getWorld()
+        );
+
+        npcs.put(citizen.getId(), entry);
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            showTo(player, entry);
+        }
+
+        return true;
+    }
+
+    public void updateNpc(UUID citizenId, org.bukkit.Location location) {
+
+        NpcEntry entry = npcs.get(citizenId);
+
+        if (entry == null || location == null || location.getWorld() == null) {
+            return;
+        }
+
+        if (!entry.world.equals(location.getWorld())) {
+
+            for (Object channel : new HashSet<>(entry.npc.getChannels())) {
+                hideFromChannel(entry.npc, channel);
+            }
+
+            entry.world = location.getWorld();
+            entry.npc.setLocation(toPacketLocation(location));
+
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                showTo(player, entry);
+            }
+
+            return;
+        }
+
+        entry.npc.updateLocation(toPacketLocation(location));
+    }
+
+    public void removeNpc(UUID citizenId) {
+
+        NpcEntry entry = npcs.remove(citizenId);
+
+        if (entry == null) {
+            return;
+        }
+
+        for (Object channel : new HashSet<>(entry.npc.getChannels())) {
+            hideFromChannel(entry.npc, channel);
+        }
+    }
+
+    public NPC getNpc(UUID citizenId) {
+
+        NpcEntry entry = npcs.get(citizenId);
+
+        return entry == null ? null : entry.npc;
+    }
+
+    public boolean hasNpc(UUID citizenId) {
+        return npcs.containsKey(citizenId);
+    }
+
+    private void showTo(Player player, NpcEntry entry) {
+
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+
+        if (!player.getWorld().equals(entry.world)) {
+            return;
+        }
+
+        Object channel = PacketEvents.getAPI()
+                .getPlayerManager()
+                .getChannel(player);
+
+        if (channel == null) {
+            return;
+        }
+
+        if (!entry.npc.hasSpawned(channel)) {
+            entry.npc.spawn(channel);
+        }
+    }
+
+    private void hideFrom(Player player, NpcEntry entry) {
+
+        if (player == null) {
+            return;
+        }
+
+        Object channel = PacketEvents.getAPI()
+                .getPlayerManager()
+                .getChannel(player);
+
+        if (channel != null) {
+            hideFromChannel(entry.npc, channel);
+        }
+    }
+
+    private void hideFromChannel(NPC npc, Object channel) {
+
+        if (!npc.hasSpawned(channel)) {
+            return;
+        }
+
+        npc.despawn(channel);
+
+        PacketEvents.getAPI()
+                .getProtocolManager()
+                .sendPacket(
+                        channel,
+                        new WrapperPlayServerPlayerInfoRemove(
+                                npc.getProfile().getUUID()
+                        )
+                );
+    }
+
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+
+            Player player = event.getPlayer();
+
+            for (NpcEntry entry : npcs.values()) {
+                showTo(player, entry);
+            }
+        });
+    }
+
+    @EventHandler
+    public void onWorldChange(PlayerChangedWorldEvent event) {
+
+        Player player = event.getPlayer();
+
+        for (NpcEntry entry : npcs.values()) {
+
+            if (player.getWorld().equals(entry.world)) {
+                showTo(player, entry);
+            } else {
+                hideFrom(player, entry);
+            }
+        }
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+
+        Player player = event.getPlayer();
+
+        Object channel = PacketEvents.getAPI()
+                .getPlayerManager()
+                .getChannel(player);
+
+        if (channel == null) {
+            return;
+        }
+
+        for (NpcEntry entry : npcs.values()) {
+
+            if (entry.npc.hasSpawned(channel)) {
+                entry.npc.despawn(channel);
+            }
+        }
+    }
+
+    public void shutdown() {
+
+        for (NpcEntry entry : npcs.values()) {
+
+            for (Object channel : new HashSet<>(entry.npc.getChannels())) {
+                hideFromChannel(entry.npc, channel);
+            }
+
+            entry.npc.despawnAll();
+        }
+
+        npcs.clear();
+    }
+
+    private Location toPacketLocation(org.bukkit.Location location) {
+
+        return new Location(
+                location.getX(),
+                location.getY(),
+                location.getZ(),
+                location.getYaw(),
+                location.getPitch()
+        );
+    }
+
+    private String createProfileName(String name) {
+
+        String safeName = name.replaceAll("[^A-Za-z0-9_]", "_");
+
+        if (safeName.isBlank()) {
+            safeName = "AICitizen";
+        }
+
+        if (safeName.length() > 16) {
+            safeName = safeName.substring(0, 16);
+        }
+
+        return safeName;
+    }
+
+    private static class NpcEntry {
+
+        private final NPC npc;
+        private World world;
+
+        private NpcEntry(NPC npc, World world) {
+            this.npc = npc;
+            this.world = world;
+        }
+    }
+}
