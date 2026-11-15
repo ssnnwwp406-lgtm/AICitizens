@@ -9,6 +9,9 @@ import com.aicitizens.citizens.CitizenMessageManager;
 import com.aicitizens.commands.CitizenCommand;
 import com.aicitizens.listeners.CitizenProtection;
 
+import com.github.retrooper.packetevents.PacketEvents;
+import io.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder;
+
 public final class AICitizens extends JavaPlugin {
 
     private CitizenManager citizenManager;
@@ -16,7 +19,18 @@ public final class AICitizens extends JavaPlugin {
     private CitizenMessageManager messageManager;
 
     @Override
+    public void onLoad() {
+        PacketEvents.setAPI(
+                SpigotPacketEventsBuilder.build(this)
+        );
+
+        PacketEvents.getAPI().load();
+    }
+
+    @Override
     public void onEnable() {
+
+        PacketEvents.getAPI().init();
 
         saveDefaultConfig();
         reloadConfig();
@@ -72,6 +86,10 @@ public final class AICitizens extends JavaPlugin {
 
         if (citizenManager != null) {
             citizenManager.shutdown();
+        }
+
+        if (PacketEvents.getAPI() != null) {
+            PacketEvents.getAPI().terminate();
         }
 
         getLogger().info("AICitizens disabled!");
