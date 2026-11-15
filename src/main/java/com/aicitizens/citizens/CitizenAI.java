@@ -17,12 +17,18 @@ public class CitizenAI extends BukkitRunnable {
 
     private final AICitizens plugin;
     private final CitizenManager manager;
+    private final CitizenMessageManager messageManager;
 
     private int tick = 0;
 
-    public CitizenAI(AICitizens plugin, CitizenManager manager) {
+    public CitizenAI(
+            AICitizens plugin,
+            CitizenManager manager,
+            CitizenMessageManager messageManager
+    ) {
         this.plugin = plugin;
         this.manager = manager;
+        this.messageManager = messageManager;
     }
 
     @Override
@@ -33,6 +39,13 @@ public class CitizenAI extends BukkitRunnable {
         }
 
         tick++;
+
+        int selectionInterval = Math.max(
+                1,
+                plugin.getConfig().getInt(
+                        "movement.destination-selection-interval", 20
+                )
+        );
 
         for (Citizen citizen : manager.getCitizens()) {
 
@@ -54,13 +67,6 @@ public class CitizenAI extends BukkitRunnable {
             }
 
             if (!citizen.isMoving()) {
-
-                int selectionInterval = Math.max(
-                        1,
-                        plugin.getConfig().getInt(
-                                "movement.destination-selection-interval", 20
-                        )
-                );
 
                 if (tick % selectionInterval == 0) {
                     chooseDestination(citizen);
@@ -174,7 +180,7 @@ public class CitizenAI extends BukkitRunnable {
         direction.setY(0);
 
         if (direction.lengthSquared() < 0.25) {
-            citizen.setMoving(false);
+            arrive(citizen);
             return;
         }
 
@@ -185,7 +191,7 @@ public class CitizenAI extends BukkitRunnable {
         );
 
         Location next = current.clone().add(
-                direction.multiply(speed)
+                direction.clone().multiply(speed)
         );
 
         next.setY(current.getY());
@@ -210,6 +216,18 @@ public class CitizenAI extends BukkitRunnable {
         }
 
         villager.teleport(next);
+    }
+
+    // ==========================================
+    //              ARRIVAL
+    // ==========================================
+
+    private void arrive(Citizen citizen) {
+
+        citizen.setMoving(false);
+        citizen.setDestination(null);
+
+        messageManager.sendArrivalMessage(citizen);
     }
 
     // ==========================================
