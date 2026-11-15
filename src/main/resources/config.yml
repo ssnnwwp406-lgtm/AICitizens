@@ -9,7 +9,6 @@ citizens:
 
   spawn:
     enabled: true
-    remove-on-disable: true
 
   appearance:
     type: VILLAGER
@@ -50,7 +49,8 @@ messages:
 
   prefix: "&8[&aAICitizens&8] "
 
-  mode: CHAT
+  # NEARBY sends to players within range; GLOBAL sends to everyone.
+  mode: NEARBY
 
   range: 30
 
@@ -63,3 +63,16 @@ messages:
       - "&7A citizen has arrived."
       - "&7Someone is exploring the city."
       - "&7A citizen is walking around."
+
+# =====================================
+# Citizen Protection Settings
+# =====================================
+
+protection:
+  damage: true
+  interaction: true
+  fire: true
+  targeting: true
+  item-pickup: true
+  knockback: true
+  pushing: true
