@@ -24,6 +24,7 @@ public class CitizenManager {
 
     private final AICitizens plugin;
     private final Map<UUID, Citizen> citizens = new HashMap<>();
+    private final Map<UUID, String> storageKeys = new HashMap<>();
     private final File dataFile;
     private final YamlConfiguration data;
 
@@ -107,8 +108,12 @@ public class CitizenManager {
                         Citizen citizen = createCitizen(name, skinName, location);
                         if (citizen == null) return;
 
+                        storageKeys.put(citizen.getId(), key);
                         if (!plugin.getCitizenNpcManager().createNpc(citizen, skin)) {
-                            removeCitizen(citizen.getId());
+                            Entity entity = citizen.getEntity();
+                            if (entity != null && entity.isValid()) entity.remove();
+                            citizens.remove(citizen.getId());
+                            storageKeys.remove(citizen.getId());
                             plugin.getLogger().warning("Could not create NPC for restored citizen " + name);
                         }
                     })
@@ -123,6 +128,7 @@ public class CitizenManager {
 
     public void saveCitizens() {
         data.set("citizens", null);
+        storageKeys.clear();
 
         for (Citizen citizen : citizens.values()) {
             if (!citizen.isValid()) continue;
@@ -132,6 +138,7 @@ public class CitizenManager {
             if (world == null) continue;
 
             String path = "citizens." + citizen.getId();
+            storageKeys.put(citizen.getId(), citizen.getId().toString());
             data.set(path + ".name", citizen.getName());
             data.set(path + ".skin", citizen.getSkinName());
             data.set(path + ".world", world.getName());
@@ -156,7 +163,8 @@ public class CitizenManager {
         Entity entity = citizen.getEntity();
         if (entity != null && entity.isValid()) entity.remove();
 
-        data.set("citizens." + id, null);
+        String storageKey = storageKeys.remove(id);
+        data.set("citizens." + (storageKey == null ? id.toString() : storageKey), null);
         try {
             data.save(dataFile);
         } catch (IOException exception) {
