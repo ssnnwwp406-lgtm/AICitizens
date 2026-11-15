@@ -2,18 +2,20 @@
 package com.aicitizens.citizens;
 
 import com.aicitizens.AICitizens;
-
 import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Villager;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class CitizenAI extends BukkitRunnable {
+
+    private static final double MOVEMENT_RADIUS = 300.0;
 
     private final AICitizens plugin;
     private final CitizenManager manager;
@@ -49,27 +51,22 @@ public class CitizenAI extends BukkitRunnable {
 
         for (Citizen citizen : manager.getCitizens()) {
 
-            if (!citizen.isValid()) {
-                continue;
-            }
+            if (!citizen.isValid()) continue;
 
             Entity entity = citizen.getEntity();
 
-            if (entity == null || !entity.isValid()) {
-                continue;
-            }
+            if (!(entity instanceof Villager villager)) continue;
+            if (!villager.isValid()) continue;
 
-            if (!entity.getWorld().isChunkLoaded(
-                    entity.getLocation().getBlockX() >> 4,
-                    entity.getLocation().getBlockZ() >> 4
-            )) {
-                continue;
-            }
+            if (!villager.getWorld().isChunkLoaded(
+                    villager.getLocation().getBlockX() >> 4,
+                    villager.getLocation().getBlockZ() >> 4
+            )) continue;
 
             if (!citizen.isMoving()) {
 
                 if (tick % selectionInterval == 0) {
-                    chooseDestination(citizen);
+                    chooseRandomDestination(citizen);
                 }
 
                 continue;
@@ -79,79 +76,74 @@ public class CitizenAI extends BukkitRunnable {
         }
     }
 
-    // ==========================================
-    //          DESTINATION SELECTION
-    // ==========================================
+    private void chooseRandomDestination(Citizen citizen) {
 
-    private void chooseDestination(Citizen citizen) {
+        Location spawn = citizen.getSpawnLocation();
 
-        if (!plugin.getConfig().getBoolean(
-                "destinations.enabled", true
-        )) {
+        if (spawn.getWorld() == null) return;
+
+        World world = spawn.getWorld();
+
+        for (int attempt = 0; attempt < 40; attempt++) {
+
+            double angle = ThreadLocalRandom.current().nextDouble(
+                    0, Math.PI * 2
+            );
+
+            double distance = Math.sqrt(
+                    ThreadLocalRandom.current().nextDouble()
+            ) * MOVEMENT_RADIUS;
+
+            int x = spawn.getBlockX()
+                    + (int) Math.round(Math.cos(angle) * distance);
+
+            int z = spawn.getBlockZ()
+                    + (int) Math.round(Math.sin(angle) * distance);
+
+            if (!world.isChunkLoaded(x >> 4, z >> 4)) {
+                continue;
+            }
+
+            int y = world.getHighestBlockYAt(x, z) + 1;
+
+            Location target = new Location(
+                    world,
+                    x + 0.5,
+                    y,
+                    z + 0.5
+            );
+
+            if (!isSafeLocation(target)) continue;
+
+            Location current = citizen.getEntity().getLocation();
+
+            if (current.distanceSquared(target) < 16) continue;
+
+            citizen.setDestination(target);
+            citizen.setMoving(true);
             return;
         }
-
-        List<Location> locations = new ArrayList<>();
-
-        for (String name : manager.getDestinationNames()) {
-
-            Location location = manager.getDestination(name);
-
-            if (location == null || location.getWorld() == null) {
-                continue;
-            }
-
-            if (!location.getWorld().equals(
-                    citizen.getEntity().getWorld()
-            )) {
-                continue;
-            }
-
-            double distance = citizen.getEntity()
-                    .getLocation()
-                    .distance(location);
-
-            double minimum = plugin.getConfig().getDouble(
-                    "movement.minimum-distance", 2.0
-            );
-
-            double maximum = plugin.getConfig().getDouble(
-                    "movement.maximum-distance", 50.0
-            );
-
-            if (distance < minimum || distance > maximum) {
-                continue;
-            }
-
-            locations.add(location);
-        }
-
-        if (locations.isEmpty()) {
-            return;
-        }
-
-        Location destination;
-
-        if (plugin.getConfig().getBoolean(
-                "movement.random-destinations", true
-        )) {
-
-            destination = locations.get(
-                    ThreadLocalRandom.current().nextInt(locations.size())
-            );
-
-        } else {
-
-            destination = locations.get(0);
-        }
-
-        citizen.setDestination(destination);
-        citizen.setMoving(true);
     }
 
-    // ==========================================
-    //              MOVEMENT
-    // ==========================================
+    private boolean isSafeLocation(Location location) {
+
+        Block floor = location.clone().subtract(0, 1, 0).getBlock();
+        Block feet = location.getBlock();
+        Block head = location.clone().add(0, 1, 0).getBlock();
+
+        if (!floor.getType().isSolid()) return false;
+
+        if (!feet.isPassable() || !head.isPassable()) return false;
+
+        if (feet.isLiquid() || head.isLiquid()) return false;
+
+        Material floorType = floor.getType();
+
+        return floorType != Material.MAGMA_BLOCK
+                && floorType != Material.CACTUS
+                && floorType != Material.CAMPFIRE
+                && floorType != Material.SOUL_CAMPFIRE;
+    }
 
     private void moveCitizen(Citizen citizen) {
 
@@ -165,9 +157,7 @@ public class CitizenAI extends BukkitRunnable {
         Location destination = citizen.getDestination();
 
         if (destination == null
-                || destination.getWorld() == null
                 || !destination.getWorld().equals(villager.getWorld())) {
-
             citizen.setMoving(false);
             return;
         }
@@ -179,7 +169,7 @@ public class CitizenAI extends BukkitRunnable {
 
         direction.setY(0);
 
-        if (direction.lengthSquared() < 0.25) {
+        if (direction.lengthSquared() < 0.5) {
             arrive(citizen);
             return;
         }
@@ -191,36 +181,47 @@ public class CitizenAI extends BukkitRunnable {
         );
 
         Location next = current.clone().add(
-                direction.clone().multiply(speed)
+                direction.multiply(speed), new Vector()
         );
 
-        next.setY(current.getY());
+        int x = next.getBlockX();
+        int z = next.getBlockZ();
+
+        World world = next.getWorld();
+
+        if (world == null || !world.isChunkLoaded(x >> 4, z >> 4)) {
+            citizen.setMoving(false);
+            return;
+        }
+
+        int groundY = world.getHighestBlockYAt(x, z);
+        int nextY = groundY + 1;
+
+        if (Math.abs(nextY - current.getBlockY()) > 1) {
+            citizen.setMoving(false);
+            return;
+        }
+
+        next.setY(nextY);
+
+        if (!isSafeLocation(next)) {
+            citizen.setMoving(false);
+            return;
+        }
+
+        Location spawn = citizen.getSpawnLocation();
+
+        if (next.distanceSquared(spawn) > MOVEMENT_RADIUS * MOVEMENT_RADIUS) {
+            citizen.setMoving(false);
+            return;
+        }
 
         next.setYaw((float) Math.toDegrees(
                 Math.atan2(-direction.getX(), direction.getZ())
         ));
 
-        boolean stopWhenBlocked = plugin.getConfig().getBoolean(
-                "movement.stop-when-blocked", true
-        );
-
-        if (stopWhenBlocked) {
-
-            if (!next.getBlock().isPassable()
-                    || !next.clone().add(0, 1, 0)
-                    .getBlock().isPassable()) {
-
-                citizen.setMoving(false);
-                return;
-            }
-        }
-
         villager.teleport(next);
     }
-
-    // ==========================================
-    //              ARRIVAL
-    // ==========================================
 
     private void arrive(Citizen citizen) {
 
@@ -230,17 +231,11 @@ public class CitizenAI extends BukkitRunnable {
         messageManager.sendArrivalMessage(citizen);
     }
 
-    // ==========================================
-    //              START
-    // ==========================================
-
     public void start() {
 
         long interval = Math.max(
                 1L,
-                plugin.getConfig().getLong(
-                        "movement.update-interval", 2
-                )
+                plugin.getConfig().getLong("movement.update-interval", 2)
         );
 
         runTaskTimer(plugin, 1L, interval);
