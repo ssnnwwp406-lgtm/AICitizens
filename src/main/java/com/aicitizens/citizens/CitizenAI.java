@@ -28,6 +28,10 @@ public class CitizenAI extends BukkitRunnable {
     @Override
     public void run() {
 
+        if (!plugin.getConfig().getBoolean("movement.enabled", true)) {
+            return;
+        }
+
         tick++;
 
         for (Citizen citizen : manager.getCitizens()) {
@@ -36,9 +40,29 @@ public class CitizenAI extends BukkitRunnable {
                 continue;
             }
 
+            Entity entity = citizen.getEntity();
+
+            if (entity == null || !entity.isValid()) {
+                continue;
+            }
+
+            if (!entity.getWorld().isChunkLoaded(
+                    entity.getLocation().getBlockX() >> 4,
+                    entity.getLocation().getBlockZ() >> 4
+            )) {
+                continue;
+            }
+
             if (!citizen.isMoving()) {
 
-                if (tick % 20 == 0) {
+                int selectionInterval = Math.max(
+                        1,
+                        plugin.getConfig().getInt(
+                                "movement.destination-selection-interval", 20
+                        )
+                );
+
+                if (tick % selectionInterval == 0) {
                     chooseDestination(citizen);
                 }
 
@@ -49,21 +73,47 @@ public class CitizenAI extends BukkitRunnable {
         }
     }
 
+    // ==========================================
+    //          DESTINATION SELECTION
+    // ==========================================
+
     private void chooseDestination(Citizen citizen) {
+
+        if (!plugin.getConfig().getBoolean(
+                "destinations.enabled", true
+        )) {
+            return;
+        }
 
         List<Location> locations = new ArrayList<>();
 
-        for (Location location : manager.getDestinationNames()
-                .stream()
-                .map(manager::getDestination)
-                .toList()) {
+        for (String name : manager.getDestinationNames()) {
+
+            Location location = manager.getDestination(name);
 
             if (location == null || location.getWorld() == null) {
                 continue;
             }
 
             if (!location.getWorld().equals(
-                    citizen.getEntity().getWorld())) {
+                    citizen.getEntity().getWorld()
+            )) {
+                continue;
+            }
+
+            double distance = citizen.getEntity()
+                    .getLocation()
+                    .distance(location);
+
+            double minimum = plugin.getConfig().getDouble(
+                    "movement.minimum-distance", 2.0
+            );
+
+            double maximum = plugin.getConfig().getDouble(
+                    "movement.maximum-distance", 50.0
+            );
+
+            if (distance < minimum || distance > maximum) {
                 continue;
             }
 
@@ -74,18 +124,28 @@ public class CitizenAI extends BukkitRunnable {
             return;
         }
 
-        Location destination = locations.get(
-                ThreadLocalRandom.current().nextInt(locations.size())
-        );
+        Location destination;
 
-        if (citizen.getEntity().getLocation()
-                .distanceSquared(destination) < 4) {
-            return;
+        if (plugin.getConfig().getBoolean(
+                "movement.random-destinations", true
+        )) {
+
+            destination = locations.get(
+                    ThreadLocalRandom.current().nextInt(locations.size())
+            );
+
+        } else {
+
+            destination = locations.get(0);
         }
 
         citizen.setDestination(destination);
         citizen.setMoving(true);
     }
+
+    // ==========================================
+    //              MOVEMENT
+    // ==========================================
 
     private void moveCitizen(Citizen citizen) {
 
@@ -98,9 +158,9 @@ public class CitizenAI extends BukkitRunnable {
 
         Location destination = citizen.getDestination();
 
-        if (destination == null ||
-                destination.getWorld() == null ||
-                !destination.getWorld().equals(villager.getWorld())) {
+        if (destination == null
+                || destination.getWorld() == null
+                || !destination.getWorld().equals(villager.getWorld())) {
 
             citizen.setMoving(false);
             return;
@@ -120,8 +180,9 @@ public class CitizenAI extends BukkitRunnable {
 
         direction.normalize();
 
-        double speed = plugin.getConfig()
-                .getDouble("citizens.movement.speed", 0.25);
+        double speed = plugin.getConfig().getDouble(
+                "movement.speed", 0.25
+        );
 
         Location next = current.clone().add(
                 direction.multiply(speed)
@@ -133,22 +194,34 @@ public class CitizenAI extends BukkitRunnable {
                 Math.atan2(-direction.getX(), direction.getZ())
         ));
 
-        if (!next.getBlock().isPassable() ||
-                !next.clone().add(0, 1, 0).getBlock().isPassable()) {
+        boolean stopWhenBlocked = plugin.getConfig().getBoolean(
+                "movement.stop-when-blocked", true
+        );
 
-            citizen.setMoving(false);
-            return;
+        if (stopWhenBlocked) {
+
+            if (!next.getBlock().isPassable()
+                    || !next.clone().add(0, 1, 0)
+                    .getBlock().isPassable()) {
+
+                citizen.setMoving(false);
+                return;
+            }
         }
 
         villager.teleport(next);
     }
+
+    // ==========================================
+    //              START
+    // ==========================================
 
     public void start() {
 
         long interval = Math.max(
                 1L,
                 plugin.getConfig().getLong(
-                        "citizens.movement.update-interval", 10
+                        "movement.update-interval", 2
                 )
         );
 
