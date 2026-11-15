@@ -5,6 +5,7 @@ import com.aicitizens.AICitizens;
 
 import org.bukkit.Location;
 import org.bukkit.World;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
@@ -25,25 +26,31 @@ public class CitizenManager {
     private final YamlConfiguration locationsConfig;
 
     public CitizenManager(AICitizens plugin) {
-
         this.plugin = plugin;
 
-        locationsFile = new File(
-                plugin.getDataFolder(),
-                "locations.yml"
-        );
-
-        locationsConfig = YamlConfiguration.loadConfiguration(
-                locationsFile
-        );
+        locationsFile = new File(plugin.getDataFolder(), "locations.yml");
+        locationsConfig = YamlConfiguration.loadConfiguration(locationsFile);
 
         loadDestinations();
     }
 
+    // ==========================================
+    //              CITIZEN CREATION
+    // ==========================================
+
     public Citizen createCitizen(String name, Location location) {
 
-        if (citizens.size() >= plugin.getConfig()
-                .getInt("citizens.max-count", 50)) {
+        if (!plugin.getConfig().getBoolean("citizens.spawn.enabled", true)) {
+            return null;
+        }
+
+        int maxCount = plugin.getConfig().getInt("citizens.max-count", 50);
+
+        if (citizens.size() >= maxCount) {
+            return null;
+        }
+
+        if (name == null || name.isBlank()) {
             return null;
         }
 
@@ -51,17 +58,54 @@ public class CitizenManager {
             return null;
         }
 
-        Villager villager = (Villager) location.getWorld()
-                .spawnEntity(location, EntityType.VILLAGER);
+        String entityType = plugin.getConfig().getString(
+                "citizens.appearance.type", "VILLAGER"
+        );
+
+        if (!"VILLAGER".equalsIgnoreCase(entityType)) {
+            plugin.getLogger().warning(
+                    "Unsupported citizen type: " + entityType
+            );
+            return null;
+        }
+
+        Villager villager = (Villager) location.getWorld().spawnEntity(
+                location,
+                EntityType.VILLAGER
+        );
 
         villager.setCustomName(name);
-        villager.setCustomNameVisible(true);
-        villager.setAI(false);
-        villager.setInvulnerable(true);
-        villager.setCollidable(false);
-        villager.setPersistent(true);
 
-        // Use the entity UUID for correct protection checks.
+        villager.setCustomNameVisible(
+                plugin.getConfig().getBoolean(
+                        "citizens.appearance.custom-name-visible", true
+                )
+        );
+
+        villager.setInvulnerable(
+                plugin.getConfig().getBoolean(
+                        "citizens.appearance.invulnerable", true
+                )
+        );
+
+        villager.setCollidable(
+                plugin.getConfig().getBoolean(
+                        "citizens.appearance.collidable", false
+                )
+        );
+
+        villager.setPersistent(
+                plugin.getConfig().getBoolean(
+                        "citizens.appearance.persistent", true
+                )
+        );
+
+        villager.setAI(
+                plugin.getConfig().getBoolean(
+                        "citizens.appearance.ai-enabled", false
+                )
+        );
+
         UUID id = villager.getUniqueId();
 
         Citizen citizen = new Citizen(
@@ -75,6 +119,10 @@ public class CitizenManager {
 
         return citizen;
     }
+
+    // ==========================================
+    //              CITIZEN REMOVAL
+    // ==========================================
 
     public boolean removeCitizen(UUID id) {
 
@@ -93,34 +141,75 @@ public class CitizenManager {
         return true;
     }
 
+    public Citizen getCitizen(UUID id) {
+        return citizens.get(id);
+    }
+
+    public Collection<Citizen> getCitizens() {
+        return Collections.unmodifiableCollection(citizens.values());
+    }
+
+    public int getCitizenCount() {
+        return citizens.size();
+    }
+
+    // ==========================================
+    //              DESTINATIONS
+    // ==========================================
+
     public boolean addDestination(String name, Location location) {
 
-        if (name == null || name.isBlank()
-                || location == null || location.getWorld() == null) {
+        if (!plugin.getConfig().getBoolean("destinations.enabled", true)) {
             return false;
         }
 
-        destinations.put(name.toLowerCase(), location.clone());
+        if (name == null || name.isBlank()) {
+            return false;
+        }
 
-        saveDestination(name.toLowerCase(), location);
+        if (location == null || location.getWorld() == null) {
+            return false;
+        }
+
+        String key = name.toLowerCase(Locale.ROOT);
+
+        destinations.put(key, location.clone());
+
+        if (plugin.getConfig().getBoolean(
+                "destinations.remember-locations", true
+        )) {
+            saveDestination(key, location);
+        }
 
         return true;
     }
 
     public Location getDestination(String name) {
 
-        Location location = destinations.get(name.toLowerCase());
+        if (name == null) {
+            return null;
+        }
+
+        Location location = destinations.get(
+                name.toLowerCase(Locale.ROOT)
+        );
 
         return location == null ? null : location.clone();
     }
 
     public Set<String> getDestinationNames() {
-        return Collections.unmodifiableSet(destinations.keySet());
+        return Collections.unmodifiableSet(
+                new HashSet<>(destinations.keySet())
+        );
     }
 
     public boolean removeDestination(String name) {
 
-        String key = name.toLowerCase();
+        if (name == null) {
+            return false;
+        }
+
+        String key = name.toLowerCase(Locale.ROOT);
 
         if (destinations.remove(key) == null) {
             return false;
@@ -131,6 +220,10 @@ public class CitizenManager {
 
         return true;
     }
+
+    // ==========================================
+    //              LOCATION STORAGE
+    // ==========================================
 
     private void saveDestination(String name, Location location) {
 
@@ -151,13 +244,20 @@ public class CitizenManager {
 
     private void loadDestinations() {
 
-        if (!locationsConfig.contains("locations")) {
+        if (!plugin.getConfig().getBoolean(
+                "destinations.remember-locations", true
+        )) {
             return;
         }
 
-        for (String name : locationsConfig
-                .getConfigurationSection("locations")
-                .getKeys(false)) {
+        ConfigurationSection section =
+                locationsConfig.getConfigurationSection("locations");
+
+        if (section == null) {
+            return;
+        }
+
+        for (String name : section.getKeys(false)) {
 
             String path = "locations." + name;
 
@@ -165,12 +265,15 @@ public class CitizenManager {
                     path + ".world"
             );
 
+            if (worldName == null) {
+                continue;
+            }
+
             World world = plugin.getServer().getWorld(worldName);
 
             if (world == null) {
                 plugin.getLogger().warning(
-                        "Could not load location: " + name
-                                + " (world not found)"
+                        "Could not load destination: " + name
                 );
                 continue;
             }
@@ -184,7 +287,7 @@ public class CitizenManager {
                     (float) locationsConfig.getDouble(path + ".pitch")
             );
 
-            destinations.put(name.toLowerCase(), location);
+            destinations.put(name.toLowerCase(Locale.ROOT), location);
         }
 
         plugin.getLogger().info(
@@ -195,8 +298,14 @@ public class CitizenManager {
     private void saveLocations() {
 
         try {
+            if (!plugin.getDataFolder().exists()) {
+                plugin.getDataFolder().mkdirs();
+            }
+
             locationsConfig.save(locationsFile);
+
         } catch (IOException exception) {
+
             plugin.getLogger().severe(
                     "Could not save locations.yml: "
                             + exception.getMessage()
@@ -204,27 +313,29 @@ public class CitizenManager {
         }
     }
 
-    public Collection<Citizen> getCitizens() {
-        return citizens.values();
-    }
-
-    public int getCitizenCount() {
-        return citizens.size();
-    }
+    // ==========================================
+    //              SHUTDOWN
+    // ==========================================
 
     public void shutdown() {
 
-        saveLocations();
+        boolean removeOnDisable = plugin.getConfig().getBoolean(
+                "citizens.spawn.remove-on-disable", true
+        );
 
-        for (Citizen citizen : citizens.values()) {
+        if (removeOnDisable) {
 
-            Entity entity = citizen.getEntity();
+            for (Citizen citizen : citizens.values()) {
 
-            if (entity != null && entity.isValid()) {
-                entity.remove();
+                Entity entity = citizen.getEntity();
+
+                if (entity != null && entity.isValid()) {
+                    entity.remove();
+                }
             }
         }
 
         citizens.clear();
+        saveLocations();
     }
 }
