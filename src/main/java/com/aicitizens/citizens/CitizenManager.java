@@ -99,6 +99,7 @@ public class CitizenManager {
 
             plugin.getSkinManager().getSkin(skinName).whenComplete((skin, error) ->
                     Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (!plugin.isEnabled()) return;
                         if (error != null) {
                             plugin.getLogger().warning("Could not restore citizen " + name
                                     + " skin " + skinName + ": " + error.getMessage());
@@ -127,7 +128,7 @@ public class CitizenManager {
     }
 
     public void saveCitizens() {
-        data.set("citizens", null);
+        // Keep records that could not be restored (for example, while Mojang is unavailable).
         storageKeys.clear();
 
         for (Citizen citizen : citizens.values()) {
