@@ -1,125 +1,65 @@
 
-# ==========================================
-#              AICitizens
-#             Main Configuration
-# ==========================================
+# =====================================
+# AICitizens Configuration
+# =====================================
 
-settings:
-  language: en
-  debug: false
-  auto-save: true
-
-# ==========================================
-#              CITIZENS
-# ==========================================
-
+# Citizens Settings
 citizens:
   max-count: 50
-
-  names:
-    random: true
-    nationality: american
-    prevent-duplicates: true
-
-  appearance:
-    type: VILLAGER
-    custom-name-visible: true
-    invulnerable: true
-    collidable: false
-    persistent: true
-    ai-enabled: false
 
   spawn:
     enabled: true
     remove-on-disable: true
 
-# ==========================================
-#              PROTECTION
-# ==========================================
+  appearance:
+    type: VILLAGER
+    invulnerable: true
+    collidable: false
+    persistent: true
+    ai-enabled: false
+    custom-name-visible: false
 
-protection:
-  damage: true
-  knockback: true
-  pushing: true
-  interaction: true
-  targeting: true
-  fire: true
-  item-pickup: true
-
-# ==========================================
-#              MOVEMENT
-# ==========================================
+# =====================================
+# Movement Settings
+# =====================================
 
 movement:
   enabled: true
 
+  # Maximum distance from the citizen spawn location
+  radius: 300
+
+  # Movement speed per update
   speed: 0.25
+
+  # Movement update interval in ticks
   update-interval: 2
+
+  # Time between choosing a new destination
   destination-selection-interval: 20
 
-  random-destinations: true
-  stop-when-blocked: true
-  same-world-only: true
+  # Maximum attempts to find a safe destination
+  destination-attempts: 40
 
-  minimum-distance: 2.0
-  maximum-distance: 50.0
-
-# ==========================================
-#              DESTINATIONS
-# ==========================================
-
-destinations:
-  enabled: true
-  random-selection: true
-  avoid-current-location: true
-  remember-locations: true
-
-# ==========================================
-#              MESSAGES
-# ==========================================
+# =====================================
+# Messages Settings
+# =====================================
 
 messages:
   enabled: true
 
-  prefix: "&8[&aAICitizens&8]"
+  prefix: "&8[&aAICitizens&8] "
 
-  mode: nearby
-  range: 16
+  mode: CHAT
+
+  range: 30
 
   cooldown: 30
 
-  on-spawn:
-    enabled: false
-    lines:
-      - "&aHello!"
-
   on-arrival:
     enabled: true
+
     lines:
-      - "&eWelcome!"
-      - "&aHello! How are you?"
-      - "&bHave a nice day!"
-
-  random-chat:
-    enabled: false
-    interval: 120
-    lines:
-      - "&fNice weather today!"
-      - "&eI love this city!"
-
-# ==========================================
-#              PERFORMANCE
-# ==========================================
-
-performance:
-  maximum-active-citizens: 50
-  update-async: false
-  skip-in-unloaded-worlds: true
-
-# ==========================================
-#              DISPLAY
-# ==========================================
-
-display:
-  show-custom-names: true
-  name-format: "&f{name}"
+      - "&7A citizen has arrived."
+      - "&7Someone is exploring the city."
+      - "&7A citizen is walking around."
