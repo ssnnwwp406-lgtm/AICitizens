@@ -1,0 +1,20 @@
+
+citizens:
+  max-count: 50
+
+  names:
+    random: true
+    nationality: american
+
+  protection:
+    damage: true
+    knockback: true
+    pushing: true
+
+  movement:
+    enabled: true
+    speed: 0.25
+    update-interval: 10
+
+messages:
+  prefix: "&8[&aAICitizens&8] "
