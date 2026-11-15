@@ -1,4 +1,3 @@
-
 package com.aicitizens;
 
 import org.bukkit.plugin.java.JavaPlugin;
@@ -19,7 +18,6 @@ public final class AICitizens extends JavaPlugin {
     private CitizenManager citizenManager;
     private CitizenAI citizenAI;
     private CitizenMessageManager messageManager;
-
     private CitizenNpcManager citizenNpcManager;
     private SkinManager skinManager;
 
@@ -38,12 +36,10 @@ public final class AICitizens extends JavaPlugin {
 
         citizenManager = new CitizenManager(this);
         messageManager = new CitizenMessageManager(this);
-
         citizenNpcManager = new CitizenNpcManager(this);
         skinManager = new SkinManager();
 
         citizenAI = new CitizenAI(this, citizenManager, messageManager);
-
         if (getConfig().getBoolean("movement.enabled", true)) {
             citizenAI.start();
         }
@@ -52,40 +48,26 @@ public final class AICitizens extends JavaPlugin {
                 new CitizenProtection(this, citizenManager), this
         );
 
-        if (getCommand("aic") != null) {
-            getCommand("aic").setExecutor(
-                    new CitizenCommand(this, citizenManager)
-            );
-        } else {
+        if (getCommand("aic") == null) {
             getLogger().severe("Command 'aic' is missing from plugin.yml!");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        getCommand("aic").setExecutor(new CitizenCommand(this, citizenManager));
+
+        // Restore persisted citizens after all managers and PacketEvents are ready.
+        citizenManager.restoreSavedCitizens();
 
         getLogger().info("AICitizens enabled successfully!");
     }
 
     @Override
     public void onDisable() {
-        if (citizenAI != null) {
-            citizenAI.cancel();
-        }
-
-        if (messageManager != null) {
-            messageManager.clear();
-        }
-
-        if (citizenNpcManager != null) {
-            citizenNpcManager.shutdown();
-        }
-
-        if (skinManager != null) {
-            skinManager.clearCache();
-        }
-
-        if (citizenManager != null) {
-            citizenManager.shutdown();
-        }
+        if (citizenAI != null) citizenAI.cancel();
+        if (messageManager != null) messageManager.clear();
+        if (citizenNpcManager != null) citizenNpcManager.shutdown();
+        if (citizenManager != null) citizenManager.shutdown();
+        if (skinManager != null) skinManager.clearCache();
 
         if (PacketEvents.getAPI() != null) {
             PacketEvents.getAPI().terminate();
