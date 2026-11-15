@@ -1,68 +1,94 @@
 
-package com.aicitizens;
+package com.aicitizens.utils;
 
-import org.bukkit.plugin.java.JavaPlugin;
-
+import com.aicitizens.AICitizens;
+import com.aicitizens.citizens.Citizen;
 import com.aicitizens.citizens.CitizenManager;
-import com.aicitizens.citizens.CitizenAI;
-import com.aicitizens.commands.CitizenCommand;
-import com.aicitizens.listeners.CitizenProtection;
 
-public final class AICitizens extends JavaPlugin {
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 
-    private CitizenManager citizenManager;
-    private CitizenAI citizenAI;
+public class RandomNames {
 
-    @Override
-    public void onEnable() {
+    private final AICitizens plugin;
+    private final CitizenManager manager;
 
-        saveDefaultConfig();
+    private final Set<String> usedNames = new HashSet<>();
 
-        reloadConfig();
+    private static final String[] FIRST_NAMES = {
+            "James", "John", "Robert", "Michael",
+            "William", "David", "Richard", "Joseph",
+            "Thomas", "Charles", "Daniel", "Matthew",
+            "Anthony", "Mark", "Steven", "Paul",
+            "Andrew", "Joshua", "Kevin", "Brian"
+    };
 
-        citizenManager = new CitizenManager(this);
+    private static final String[] LAST_NAMES = {
+            "Smith", "Johnson", "Williams", "Brown",
+            "Jones", "Miller", "Davis", "Wilson",
+            "Anderson", "Taylor", "Thomas", "Moore",
+            "Jackson", "Martin", "Lee", "Thompson"
+    };
 
-        citizenAI = new CitizenAI(this, citizenManager);
+    public RandomNames(AICitizens plugin, CitizenManager manager) {
+        this.plugin = plugin;
+        this.manager = manager;
+    }
 
-        if (getConfig().getBoolean("movement.enabled", true)) {
-            citizenAI.start();
+    public String generate() {
+
+        if (!plugin.getConfig().getBoolean(
+                "citizens.names.random", true
+        )) {
+            return "Citizen";
         }
 
-        getServer().getPluginManager().registerEvents(
-                new CitizenProtection(this, citizenManager),
-                this
+        boolean preventDuplicates = plugin.getConfig().getBoolean(
+                "citizens.names.prevent-duplicates", true
         );
 
-        if (getCommand("aic") != null) {
-            getCommand("aic").setExecutor(
-                    new CitizenCommand(citizenManager)
-            );
-        } else {
-            getLogger().severe(
-                    "Command 'aic' is missing from plugin.yml!"
-            );
-            getServer().getPluginManager().disablePlugin(this);
-            return;
+        for (int i = 0; i < 100; i++) {
+
+            String first = FIRST_NAMES[
+                    ThreadLocalRandom.current().nextInt(FIRST_NAMES.length)
+            ];
+
+            String last = LAST_NAMES[
+                    ThreadLocalRandom.current().nextInt(LAST_NAMES.length)
+            ];
+
+            String name = first + " " + last;
+
+            if (!preventDuplicates || !isNameUsed(name)) {
+                usedNames.add(name.toLowerCase(Locale.ROOT));
+                return name;
+            }
         }
 
-        getLogger().info("AICitizens enabled successfully!");
+        return "Citizen" + ThreadLocalRandom.current().nextInt(10000);
     }
 
-    @Override
-    public void onDisable() {
+    private boolean isNameUsed(String name) {
 
-        if (citizenAI != null) {
-            citizenAI.cancel();
+        if (usedNames.contains(name.toLowerCase(Locale.ROOT))) {
+            return true;
         }
 
-        if (citizenManager != null) {
-            citizenManager.shutdown();
+        for (Citizen citizen : manager.getCitizens()) {
+            if (citizen.getName().equalsIgnoreCase(name)) {
+                return true;
+            }
         }
 
-        getLogger().info("AICitizens disabled!");
+        return false;
     }
 
-    public CitizenManager getCitizenManager() {
-        return citizenManager;
+    public void release(String name) {
+
+        if (name != null) {
+            usedNames.remove(name.toLowerCase(Locale.ROOT));
+        }
     }
 }
