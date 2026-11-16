@@ -58,6 +58,7 @@ public class CitizenManager {
         villager.setInvisible(true);
         // The Villager is only a hidden movement carrier; keep its sounds muted.
         villager.setSilent(true);
+        villager.setAware(false);
         villager.setInvulnerable(plugin.getConfig().getBoolean("citizens.appearance.invulnerable", true));
         villager.setCollidable(plugin.getConfig().getBoolean("citizens.appearance.collidable", false));
         villager.setPersistent(plugin.getConfig().getBoolean("citizens.appearance.persistent", true));
