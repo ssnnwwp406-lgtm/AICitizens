@@ -56,8 +56,8 @@ public class CitizenManager {
         villager.setCustomNameVisible(plugin.getConfig().getBoolean(
                 "citizens.appearance.custom-name-visible", false));
         villager.setInvisible(true);
-        // Keep the villager non-silent so its ambient sounds remain unchanged.
-        villager.setSilent(false);
+        // The Villager is only a hidden movement carrier; keep its sounds muted.
+        villager.setSilent(true);
         villager.setInvulnerable(plugin.getConfig().getBoolean("citizens.appearance.invulnerable", true));
         villager.setCollidable(plugin.getConfig().getBoolean("citizens.appearance.collidable", false));
         villager.setPersistent(plugin.getConfig().getBoolean("citizens.appearance.persistent", true));
