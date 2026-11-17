@@ -17,7 +17,9 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class CitizenManager {
@@ -25,6 +27,8 @@ public class CitizenManager {
     private final AICitizens plugin;
     private final Map<UUID, Citizen> citizens = new HashMap<>();
     private final Map<UUID, String> storageKeys = new HashMap<>();
+    private final Set<String> pendingRestoreKeys = new HashSet<>();
+    private final Set<String> loadingRestoreKeys = new HashSet<>();
     private final File dataFile;
     private final YamlConfiguration data;
 
@@ -67,66 +71,114 @@ public class CitizenManager {
         UUID id = villager.getUniqueId();
         Citizen citizen = new Citizen(id, name, skinName, villager, location);
         citizens.put(id, citizen);
+        // Persist immediately so a normal restart or unexpected shutdown does not lose new citizens.
+        saveCitizens();
         return citizen;
     }
 
     public void restoreSavedCitizens() {
         ConfigurationSection section = data.getConfigurationSection("citizens");
-        if (section == null) return;
+        if (section == null) {
+            plugin.getLogger().info("No saved citizens found.");
+            return;
+        }
 
-        int restored = 0;
-        for (String key : section.getKeys(false)) {
-            if (citizens.size() >= Math.max(1, plugin.getConfig().getInt("citizens.max-count", 50))) break;
+        pendingRestoreKeys.clear();
+        pendingRestoreKeys.addAll(section.getKeys(false));
+        if (pendingRestoreKeys.isEmpty()) return;
 
-            ConfigurationSection saved = section.getConfigurationSection(key);
-            if (saved == null) continue;
+        plugin.getLogger().info("Found " + pendingRestoreKeys.size()
+                + " saved citizens. Waiting for their worlds to load...");
 
-            String name = saved.getString("name");
-            String skinName = saved.getString("skin");
-            String worldName = saved.getString("world");
-            World world = worldName == null ? null : Bukkit.getWorld(worldName);
-            if (name == null || skinName == null || world == null) {
-                plugin.getLogger().warning("Skipping saved citizen " + key + ": missing name, skin, or world.");
-                continue;
+        // Some world-management plugins load worlds after AICitizens enables.
+        // Retry restoration for up to three minutes instead of permanently skipping those citizens.
+        final int[] attempts = {0};
+        Bukkit.getScheduler().runTaskTimer(plugin, task -> {
+            if (!plugin.isEnabled() || pendingRestoreKeys.isEmpty()) {
+                task.cancel();
+                return;
             }
 
-            Location location = new Location(
-                    world,
-                    saved.getDouble("x"),
-                    saved.getDouble("y"),
-                    saved.getDouble("z"),
-                    (float) saved.getDouble("yaw"),
-                    (float) saved.getDouble("pitch")
-            );
+            attempts[0]++;
+            for (String key : new HashSet<>(pendingRestoreKeys)) {
+                if (loadingRestoreKeys.contains(key)) continue;
 
-            plugin.getSkinManager().getSkin(skinName).whenComplete((skin, error) ->
-                    Bukkit.getScheduler().runTask(plugin, () -> {
-                        if (!plugin.isEnabled()) return;
-                        if (error != null) {
-                            plugin.getLogger().warning("Could not restore citizen " + name
-                                    + " skin " + skinName + ": " + error.getMessage());
-                            return;
-                        }
+                ConfigurationSection saved = data.getConfigurationSection("citizens." + key);
+                if (saved == null) {
+                    pendingRestoreKeys.remove(key);
+                    continue;
+                }
 
-                        Citizen citizen = createCitizen(name, skinName, location);
-                        if (citizen == null) return;
+                String name = saved.getString("name");
+                String skinName = saved.getString("skin");
+                String worldName = saved.getString("world");
+                World world = worldName == null ? null : Bukkit.getWorld(worldName);
 
-                        storageKeys.put(citizen.getId(), key);
-                        if (!plugin.getCitizenNpcManager().createNpc(citizen, skin)) {
-                            Entity entity = citizen.getEntity();
-                            if (entity != null && entity.isValid()) entity.remove();
-                            citizens.remove(citizen.getId());
-                            storageKeys.remove(citizen.getId());
-                            plugin.getLogger().warning("Could not create NPC for restored citizen " + name);
-                        }
-                    })
-            );
-            restored++;
-        }
+                if (name == null || skinName == null) {
+                    plugin.getLogger().warning("Skipping saved citizen " + key
+                            + ": missing name or skin.");
+                    pendingRestoreKeys.remove(key);
+                    continue;
+                }
 
-        if (restored > 0) {
-            plugin.getLogger().info("Queued " + restored + " saved citizens for restoration.");
-        }
+                if (world == null) continue;
+
+                Location location = new Location(
+                        world,
+                        saved.getDouble("x"),
+                        saved.getDouble("y"),
+                        saved.getDouble("z"),
+                        (float) saved.getDouble("yaw"),
+                        (float) saved.getDouble("pitch")
+                );
+
+                loadingRestoreKeys.add(key);
+                plugin.getSkinManager().getSkin(skinName).whenComplete((skin, error) ->
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            loadingRestoreKeys.remove(key);
+                            if (!plugin.isEnabled()) return;
+
+                            if (error != null || skin == null) {
+                                plugin.getLogger().warning("Could not restore citizen " + name
+                                        + " skin " + skinName + ": "
+                                        + (error == null ? "skin data was empty" : error.getMessage()));
+                                return; // Retry on the next scheduled pass.
+                            }
+
+                            Citizen citizen = createCitizen(name, skinName, location);
+                            if (citizen == null) {
+                                plugin.getLogger().warning("Could not restore citizen " + name
+                                        + ": citizen limit or spawn settings prevented creation.");
+                                pendingRestoreKeys.remove(key);
+                                return;
+                            }
+
+                            // Keep the old key until saveCitizens migrates it to the new runtime UUID.
+                            storageKeys.put(citizen.getId(), key);
+                            if (!plugin.getCitizenNpcManager().createNpc(citizen, skin)) {
+                                Entity entity = citizen.getEntity();
+                                if (entity != null && entity.isValid()) entity.remove();
+                                citizens.remove(citizen.getId());
+                                storageKeys.remove(citizen.getId());
+                                plugin.getLogger().warning("Could not create NPC for restored citizen " + name
+                                        + "; it will be retried.");
+                                return;
+                            }
+
+                            pendingRestoreKeys.remove(key);
+                            saveCitizens();
+                            plugin.getLogger().info("Restored citizen: " + name);
+                        })
+                );
+            }
+
+            if (attempts[0] >= 180 && !pendingRestoreKeys.isEmpty()) {
+                plugin.getLogger().warning("Could not restore " + pendingRestoreKeys.size()
+                        + " citizen(s) because their worlds or skins were unavailable. "
+                        + "Their records remain saved in citizens.yml.");
+                task.cancel();
+            }
+        }, 1L, 20L);
     }
 
     public void saveCitizens() {
