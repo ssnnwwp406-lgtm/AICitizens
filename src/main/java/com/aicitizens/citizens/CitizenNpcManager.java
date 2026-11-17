@@ -11,6 +11,7 @@ import com.github.retrooper.packetevents.protocol.world.Location;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerInfoRemove;
 
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
 import org.bukkit.Bukkit;
 import org.bukkit.World;
@@ -54,7 +55,10 @@ public class CitizenNpcManager implements Listener {
         textures.add(new TextureProperty("textures", skin.getTexture(), skin.getSignature()));
 
         UserProfile profile = new UserProfile(npcUUID, profileName, textures);
-        NPC npc = new NPC(profile, NEXT_ENTITY_ID.getAndIncrement(), Component.text(citizen.getName()));
+        String tabFormat = plugin.getConfig().getString("citizens.tab-list.name-format", "&f{name}");
+        String tabDisplayName = tabFormat.replace("{name}", citizen.getName());
+        Component tabName = LegacyComponentSerializer.legacyAmpersand().deserialize(tabDisplayName);
+        NPC npc = new NPC(profile, NEXT_ENTITY_ID.getAndIncrement(), tabName);
         npc.setLocation(toPacketLocation(bukkitLocation));
 
         NpcEntry entry = new NpcEntry(npc, bukkitLocation.getWorld());
