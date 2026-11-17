@@ -7,6 +7,12 @@
 citizens:
   max-count: 50
 
+  # Fake citizen player-list (TAB) display name.
+  # {name} is replaced with the citizen's configured name.
+  tab-list:
+    enabled: true
+    name-format: "&f{name}"
+
   spawn:
     enabled: true
 
