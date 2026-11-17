@@ -42,6 +42,7 @@ public final class CitizenPathManager {
         if (player == null || citizen == null || !citizen.isValid()) return false;
         UUID id = citizen.getId();
         stopRecordingTask(id);
+        paused.add(id);
         List<Location> points = new ArrayList<>();
         points.add(player.getLocation().clone());
         recordings.put(id, points);
@@ -92,18 +93,34 @@ public final class CitizenPathManager {
     }
 
     public boolean resume(Citizen citizen) {
-        if (citizen == null || !routes.containsKey(citizen.getId())) return false;
-        paused.remove(citizen.getId());
+        if (citizen == null) return false;
+        UUID id = citizen.getId();
+        if (!routes.containsKey(id)) {
+            ConfigurationSection route = data.getConfigurationSection("routes." + key(citizen));
+            if (route == null) return false;
+            List<Location> points = new ArrayList<>();
+            for (String pointKey : route.getKeys(false)) {
+                ConfigurationSection point = route.getConfigurationSection(pointKey);
+                if (point == null) continue;
+                World world = Bukkit.getWorld(point.getString("world", ""));
+                if (world != null) points.add(new Location(world, point.getDouble("x"), point.getDouble("y"),
+                        point.getDouble("z"), (float) point.getDouble("yaw"), (float) point.getDouble("pitch")));
+            }
+            if (points.size() < 2) return false;
+            attachRoute(citizen, points);
+        }
+        paused.remove(id);
         return true;
     }
 
     public boolean halt(Citizen citizen) {
         if (citizen == null) return false;
         UUID id = citizen.getId();
-        boolean existed = routes.remove(id) != null;
+        boolean existed = routes.containsKey(id);
+        routes.remove(id);
         indexes.remove(id);
         directions.remove(id);
-        paused.remove(id);
+        paused.add(id);
         return existed;
     }
 
