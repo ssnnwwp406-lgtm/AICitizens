@@ -90,12 +90,7 @@
                                     <shadedPattern>com.aicitizens.libs.packetevents.impl</shadedPattern>
                                 </relocation>
 
-                                <relocation>
-                                    <pattern>net.kyori</pattern>
-                                    <shadedPattern>com.aicitizens.libs.kyori</shadedPattern>
-                                </relocation>
-
-                                <relocation>
+                                    <relocation>
                                     <pattern>com.google.gson</pattern>
                                     <shadedPattern>com.aicitizens.libs.gson</shadedPattern>
                                 </relocation>
