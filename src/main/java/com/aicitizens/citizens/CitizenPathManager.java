@@ -157,8 +157,20 @@ public final class CitizenPathManager {
             double distance = delta.length();
             double speed = Math.max(0.04, Math.min(0.8, plugin.getConfig().getDouble("movement.speed", 0.22)));
             Location next;
+
+            // Always face the direction of travel, including while walking back.
+            // Recorded waypoint yaw belongs to the original player recording and
+            // would make the citizen turn incorrectly on the reverse leg.
+            float travelYaw = current.getYaw();
+            if (distance > 0.001) {
+                Vector directionVector = delta.clone().normalize();
+                travelYaw = (float) Math.toDegrees(Math.atan2(-directionVector.getX(), directionVector.getZ()));
+            }
+
             if (distance <= speed + 0.08) {
                 next = target.clone();
+                next.setYaw(travelYaw);
+                next.setPitch(0.0f);
                 if (index == route.size() - 1) direction = -1;
                 else if (index == 0) direction = 1;
                 index += direction;
@@ -167,8 +179,8 @@ public final class CitizenPathManager {
             } else {
                 delta.normalize();
                 next = current.clone().add(delta.multiply(speed));
-                next.setYaw((float) Math.toDegrees(Math.atan2(-delta.getX(), delta.getZ())));
-                next.setPitch(target.getPitch());
+                next.setYaw(travelYaw);
+                next.setPitch(0.0f);
             }
             if (villager.teleport(next)) {
                 villager.setSilent(true);
