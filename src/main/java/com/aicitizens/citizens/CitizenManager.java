@@ -18,6 +18,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -35,10 +36,27 @@ public class CitizenManager {
     public CitizenManager(AICitizens plugin) {
         this.plugin = plugin;
         this.dataFile = new File(plugin.getDataFolder(), "citizens.yml");
-        if (!plugin.getDataFolder().exists()) {
-            plugin.getDataFolder().mkdirs();
-        }
+        if (!plugin.getDataFolder().exists()) plugin.getDataFolder().mkdirs();
         this.data = YamlConfiguration.loadConfiguration(dataFile);
+    }
+
+    public boolean isNameTaken(String name) {
+        if (name == null || name.isBlank()) return false;
+        String normalized = normalizeName(name);
+        return citizens.values().stream().anyMatch(citizen ->
+                normalizeName(citizen.getName()).equals(normalized));
+    }
+
+    public Citizen getCitizenByName(String name) {
+        if (name == null || name.isBlank()) return null;
+        String normalized = normalizeName(name);
+        return citizens.values().stream()
+                .filter(citizen -> normalizeName(citizen.getName()).equals(normalized))
+                .findFirst().orElse(null);
+    }
+
+    private String normalizeName(String name) {
+        return name.trim().toLowerCase(Locale.ROOT);
     }
 
     public Citizen createCitizen(String name, String skinName, Location location) {
@@ -47,6 +65,8 @@ public class CitizenManager {
         int maxCount = Math.max(1, plugin.getConfig().getInt("citizens.max-count", 50));
         if (citizens.size() >= maxCount) return null;
         if (name == null || name.isBlank() || skinName == null || skinName.isBlank()) return null;
+        name = name.trim();
+        if (isNameTaken(name)) return null;
         if (location == null || location.getWorld() == null) return null;
 
         String entityType = plugin.getConfig().getString("citizens.appearance.type", "VILLAGER");
@@ -60,7 +80,6 @@ public class CitizenManager {
         villager.setCustomNameVisible(plugin.getConfig().getBoolean(
                 "citizens.appearance.custom-name-visible", false));
         villager.setInvisible(true);
-        // The Villager is only a hidden movement carrier; keep its sounds muted.
         villager.setSilent(true);
         villager.setAware(false);
         villager.setInvulnerable(plugin.getConfig().getBoolean("citizens.appearance.invulnerable", true));
@@ -71,7 +90,6 @@ public class CitizenManager {
         UUID id = villager.getUniqueId();
         Citizen citizen = new Citizen(id, name, skinName, villager, location);
         citizens.put(id, citizen);
-        // Persist immediately so a normal restart or unexpected shutdown does not lose new citizens.
         saveCitizens();
         return citizen;
     }
@@ -90,8 +108,6 @@ public class CitizenManager {
         plugin.getLogger().info("Found " + pendingRestoreKeys.size()
                 + " saved citizens. Waiting for their worlds to load...");
 
-        // Some world-management plugins load worlds after AICitizens enables.
-        // Retry restoration for up to three minutes instead of permanently skipping those citizens.
         final int[] attempts = {0};
         Bukkit.getScheduler().runTaskTimer(plugin, task -> {
             if (!plugin.isEnabled() || pendingRestoreKeys.isEmpty()) {
@@ -115,45 +131,42 @@ public class CitizenManager {
                 World world = worldName == null ? null : Bukkit.getWorld(worldName);
 
                 if (name == null || skinName == null) {
-                    plugin.getLogger().warning("Skipping saved citizen " + key
-                            + ": missing name or skin.");
+                    plugin.getLogger().warning("Skipping saved citizen " + key + ": missing name or skin.");
                     pendingRestoreKeys.remove(key);
                     continue;
                 }
-
+                if (isNameTaken(name)) {
+                    plugin.getLogger().warning("Skipping duplicate saved citizen name '" + name
+                            + "'. Citizen names must be unique.");
+                    pendingRestoreKeys.remove(key);
+                    continue;
+                }
                 if (world == null) continue;
 
-                Location location = new Location(
-                        world,
-                        saved.getDouble("x"),
-                        saved.getDouble("y"),
-                        saved.getDouble("z"),
-                        (float) saved.getDouble("yaw"),
-                        (float) saved.getDouble("pitch")
-                );
+                Location location = new Location(world, saved.getDouble("x"), saved.getDouble("y"),
+                        saved.getDouble("z"), (float) saved.getDouble("yaw"),
+                        (float) saved.getDouble("pitch"));
 
                 loadingRestoreKeys.add(key);
                 plugin.getSkinManager().getSkin(skinName).whenComplete((skin, error) ->
                         Bukkit.getScheduler().runTask(plugin, () -> {
                             loadingRestoreKeys.remove(key);
                             if (!plugin.isEnabled()) return;
-
                             if (error != null || skin == null) {
                                 plugin.getLogger().warning("Could not restore citizen " + name
                                         + " skin " + skinName + ": "
                                         + (error == null ? "skin data was empty" : error.getMessage()));
-                                return; // Retry on the next scheduled pass.
+                                return;
                             }
 
                             Citizen citizen = createCitizen(name, skinName, location);
                             if (citizen == null) {
                                 plugin.getLogger().warning("Could not restore citizen " + name
-                                        + ": citizen limit or spawn settings prevented creation.");
+                                        + ": citizen limit, duplicate name, or spawn settings prevented creation.");
                                 pendingRestoreKeys.remove(key);
                                 return;
                             }
 
-                            // Keep the old key until saveCitizens migrates it to the new runtime UUID.
                             storageKeys.put(citizen.getId(), key);
                             if (!plugin.getCitizenNpcManager().createNpc(citizen, skin)) {
                                 Entity entity = citizen.getEntity();
@@ -182,21 +195,15 @@ public class CitizenManager {
     }
 
     public void saveCitizens() {
-        // Keep records that could not be restored (for example, while Mojang is unavailable).
-        // A restored Villager receives a new runtime UUID, so replace its previous storage key
-        // instead of leaving the old record behind and duplicating it on the next restart.
         for (Citizen citizen : citizens.values()) {
             if (!citizen.isValid()) continue;
-
             Location location = citizen.getSpawnLocation();
             World world = location.getWorld();
             if (world == null) continue;
 
             String currentKey = citizen.getId().toString();
             String previousKey = storageKeys.get(citizen.getId());
-            if (previousKey != null && !previousKey.equals(currentKey)) {
-                data.set("citizens." + previousKey, null);
-            }
+            if (previousKey != null && !previousKey.equals(currentKey)) data.set("citizens." + previousKey, null);
 
             String path = "citizens." + currentKey;
             storageKeys.put(citizen.getId(), currentKey);
@@ -220,7 +227,6 @@ public class CitizenManager {
     public boolean removeCitizen(UUID id) {
         Citizen citizen = citizens.remove(id);
         if (citizen == null) return false;
-
         Entity entity = citizen.getEntity();
         if (entity != null && entity.isValid()) entity.remove();
 
@@ -234,22 +240,12 @@ public class CitizenManager {
         return true;
     }
 
-    public Citizen getCitizen(UUID id) {
-        return citizens.get(id);
-    }
-
-    public Collection<Citizen> getCitizens() {
-        return Collections.unmodifiableCollection(citizens.values());
-    }
-
-    public int getCitizenCount() {
-        return citizens.size();
-    }
+    public Citizen getCitizen(UUID id) { return citizens.get(id); }
+    public Collection<Citizen> getCitizens() { return Collections.unmodifiableCollection(citizens.values()); }
+    public int getCitizenCount() { return citizens.size(); }
 
     public void shutdown() {
         saveCitizens();
-
-        // Remove runtime entities after saving; they are recreated from citizens.yml next startup.
         for (Citizen citizen : citizens.values()) {
             Entity entity = citizen.getEntity();
             if (entity != null && entity.isValid()) entity.remove();
