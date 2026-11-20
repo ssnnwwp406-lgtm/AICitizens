@@ -40,7 +40,7 @@ public class CitizenNpcManager implements Listener {
         this.plugin = plugin;
         Bukkit.getPluginManager().registerEvents(this, plugin);
         // Keep the fake player-list entries present even if another plugin refreshes TAB.
-        this.tabRefreshTask = Bukkit.getScheduler().runTaskTimer(plugin, this::refreshTabEntries, 100L, 100L);
+        this.tabRefreshTask = Bukkit.getScheduler().runTaskTimer(plugin, this::refreshTabEntries, 20L, 20L);
     }
 
     public boolean createNpc(Citizen citizen, SkinManager.SkinData skin) {
@@ -116,8 +116,9 @@ public class CitizenNpcManager implements Listener {
         for (NpcEntry entry : npcs.values()) {
             for (Player player : Bukkit.getOnlinePlayers()) {
                 if (!player.getWorld().equals(entry.world)) continue;
-                Object channel = PacketEvents.getAPI().getPlayerManager().getChannel(player);
-                if (channel != null && entry.npc.hasSpawned(channel)) ensureTabEntry(entry.npc, channel);
+                // Re-assert both the fake player spawn and its tab-list profile.
+                // This helps recover if a tab plugin periodically rebuilds player info.
+                showTo(player, entry);
             }
         }
     }
