@@ -1,4 +1,3 @@
-
 package com.aicitizens.citizens;
 
 import java.util.UUID;
@@ -10,22 +9,16 @@ public class Citizen {
 
     private final UUID id;
     private final String name;
+    private final String skinName;
     private final Entity entity;
-
     private final Location spawnLocation;
-
     private Location destination;
-
     private boolean moving;
 
-    public Citizen(
-            UUID id,
-            String name,
-            Entity entity,
-            Location spawnLocation
-    ) {
+    public Citizen(UUID id, String name, String skinName, Entity entity, Location spawnLocation) {
         this.id = id;
         this.name = name;
+        this.skinName = skinName;
         this.entity = entity;
         this.spawnLocation = spawnLocation.clone();
         this.moving = false;
@@ -37,6 +30,10 @@ public class Citizen {
 
     public String getName() {
         return name;
+    }
+
+    public String getSkinName() {
+        return skinName;
     }
 
     public Entity getEntity() {
@@ -52,9 +49,7 @@ public class Citizen {
     }
 
     public void setDestination(Location destination) {
-        this.destination = destination == null
-                ? null
-                : destination.clone();
+        this.destination = destination == null ? null : destination.clone();
     }
 
     public boolean isMoving() {

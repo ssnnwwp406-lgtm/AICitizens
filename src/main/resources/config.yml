@@ -1,16 +1,10 @@
-
-# =====================================
 # AICitizens Configuration
-# =====================================
-
-# Citizens Settings
 citizens:
   max-count: 50
-
+  tab-list:
+    name-format: "&f{name}"
   spawn:
     enabled: true
-    remove-on-disable: true
-
   appearance:
     type: VILLAGER
     invulnerable: true
@@ -19,47 +13,32 @@ citizens:
     ai-enabled: false
     custom-name-visible: false
 
-# =====================================
-# Movement Settings
-# =====================================
-
+# Citizens remain still until a recorded route is saved.
 movement:
-  enabled: true
-
-  # Maximum distance from the citizen spawn location
-  radius: 300
-
-  # Movement speed per update
-  speed: 0.25
-
-  # Movement update interval in ticks
+  enabled: false
+  speed: 0.22
   update-interval: 2
-
-  # Time between choosing a new destination
-  destination-selection-interval: 20
-
-  # Maximum attempts to find a safe destination
-  destination-attempts: 40
-
-# =====================================
-# Messages Settings
-# =====================================
+  # Same recorded playback speed is used in both directions.
+  forward-speed: 1.0
 
 messages:
   enabled: true
-
   prefix: "&8[&aAICitizens&8] "
-
-  mode: CHAT
-
+  mode: NEARBY
   range: 30
-
   cooldown: 30
-
   on-arrival:
     enabled: true
-
     lines:
       - "&7A citizen has arrived."
       - "&7Someone is exploring the city."
       - "&7A citizen is walking around."
+
+protection:
+  damage: true
+  interaction: true
+  fire: true
+  targeting: true
+  item-pickup: true
+  knockback: true
+  pushing: true

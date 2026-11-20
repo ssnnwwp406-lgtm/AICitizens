@@ -3,7 +3,7 @@ name: AICitizens Build
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "aicitizens-improvements" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:

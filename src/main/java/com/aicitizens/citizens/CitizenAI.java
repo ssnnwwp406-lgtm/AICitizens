@@ -1,12 +1,11 @@
-
 package com.aicitizens.citizens;
 
 import com.aicitizens.AICitizens;
-
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.data.type.Slab;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Villager;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -16,20 +15,18 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public class CitizenAI extends BukkitRunnable {
 
-    private static final double MOVEMENT_RADIUS = 300.0;
+    private static final double SAMPLE_STEP = 0.25;
+    private static final double MIN_ROUTE_LENGTH = 0.20;
+    private static final double MAX_ROUTE_LENGTH = 24.0;
+    private static final double HEIGHT_TOLERANCE = 0.60;
 
     private final AICitizens plugin;
     private final CitizenManager manager;
     private final CitizenMessageManager messageManager;
     private final CitizenNpcManager npcManager;
+    private int tick;
 
-    private int tick = 0;
-
-    public CitizenAI(
-            AICitizens plugin,
-            CitizenManager manager,
-            CitizenMessageManager messageManager
-    ) {
+    public CitizenAI(AICitizens plugin, CitizenManager manager, CitizenMessageManager messageManager) {
         this.plugin = plugin;
         this.manager = manager;
         this.messageManager = messageManager;
@@ -38,207 +35,173 @@ public class CitizenAI extends BukkitRunnable {
 
     @Override
     public void run() {
-
-        if (!plugin.getConfig().getBoolean("movement.enabled", true)) {
-            return;
-        }
-
+        if (!plugin.getConfig().getBoolean("movement.enabled", true)) return;
         tick++;
 
-        int selectionInterval = Math.max(
-                1,
-                plugin.getConfig().getInt(
-                        "movement.destination-selection-interval", 20
-                )
-        );
+        int retryInterval = Math.max(1,
+                plugin.getConfig().getInt("movement.destination-selection-interval", 2));
 
         for (Citizen citizen : manager.getCitizens()) {
-
             if (!citizen.isValid()) continue;
 
             Entity entity = citizen.getEntity();
+            if (!(entity instanceof Villager villager) || !villager.isValid()) continue;
 
-            if (!(entity instanceof Villager villager)) continue;
-            if (!villager.isValid()) continue;
+            // Enforce silence continuously, including after citizen restoration.
+            villager.setSilent(true);
 
-            if (!villager.getWorld().isChunkLoaded(
-                    villager.getLocation().getBlockX() >> 4,
-                    villager.getLocation().getBlockZ() >> 4
-            )) {
-                continue;
+            if (citizen.isMoving()) {
+                moveCitizen(citizen, villager);
+            } else if (tick % retryInterval == 0) {
+                chooseStraightRoute(citizen, villager);
+            }
+        }
+    }
+
+    /*
+     * Pick one of four cardinal directions and follow a straight slab path.
+     * The route may be short; it must never require an arbitrary 8-block run.
+     */
+    private void chooseStraightRoute(Citizen citizen, Villager villager) {
+        Location current = villager.getLocation();
+        World world = current.getWorld();
+        if (world == null) return;
+
+        double radius = Math.max(1.0,
+                plugin.getConfig().getDouble("movement.radius", 300.0));
+        Location origin = citizen.getSpawnLocation();
+
+        int firstDirection = ThreadLocalRandom.current().nextInt(4);
+        for (int attempt = 0; attempt < 4; attempt++) {
+            int directionIndex = (firstDirection + attempt) % 4;
+            Vector direction = switch (directionIndex) {
+                case 0 -> new Vector(0, 0, 1);
+                case 1 -> new Vector(1, 0, 0);
+                case 2 -> new Vector(0, 0, -1);
+                default -> new Vector(-1, 0, 0);
+            };
+
+            double wantedLength = ThreadLocalRandom.current().nextDouble(4.0, MAX_ROUTE_LENGTH + 1.0);
+            Location lastSafe = null;
+
+            for (double distance = SAMPLE_STEP; distance <= wantedLength; distance += SAMPLE_STEP) {
+                Location sample = current.clone().add(direction.clone().multiply(distance));
+                Location surface = findSlabSurface(world, sample.getX(), sample.getZ(), current.getY());
+                if (surface == null) break;
+                if (Math.abs(surface.getY() - current.getY()) > HEIGHT_TOLERANCE) break;
+                if (surface.distanceSquared(origin) > radius * radius) break;
+                lastSafe = surface;
             }
 
-            if (!citizen.isMoving()) {
-                if (tick % selectionInterval == 0) {
-                    chooseRandomDestination(citizen);
-                }
-                continue;
+            if (lastSafe != null && current.distance(lastSafe) >= MIN_ROUTE_LENGTH) {
+                lastSafe.setYaw((float) Math.toDegrees(Math.atan2(-direction.getX(), direction.getZ())));
+                citizen.setDestination(lastSafe);
+                citizen.setMoving(true);
+                return;
             }
-
-            moveCitizen(citizen);
-        }
-    }
-
-    private void chooseRandomDestination(Citizen citizen) {
-
-        Location spawn = citizen.getSpawnLocation();
-
-        if (spawn.getWorld() == null) return;
-
-        World world = spawn.getWorld();
-
-        for (int attempt = 0; attempt < 40; attempt++) {
-
-            double angle = ThreadLocalRandom.current()
-                    .nextDouble(0, Math.PI * 2);
-
-            double distance = Math.sqrt(
-                    ThreadLocalRandom.current().nextDouble()
-            ) * MOVEMENT_RADIUS;
-
-            int x = spawn.getBlockX()
-                    + (int) Math.round(Math.cos(angle) * distance);
-
-            int z = spawn.getBlockZ()
-                    + (int) Math.round(Math.sin(angle) * distance);
-
-            if (!world.isChunkLoaded(x >> 4, z >> 4)) continue;
-
-            int y = world.getHighestBlockYAt(x, z) + 1;
-
-            Location target = new Location(
-                    world,
-                    x + 0.5,
-                    y,
-                    z + 0.5
-            );
-
-            if (!isSafeLocation(target)) continue;
-
-            Location current = citizen.getEntity().getLocation();
-
-            if (current.distanceSquared(target) < 16) continue;
-
-            citizen.setDestination(target);
-            citizen.setMoving(true);
-
-            return;
-        }
-    }
-
-    private boolean isSafeLocation(Location location) {
-
-        Block floor = location.clone().subtract(0, 1, 0).getBlock();
-        Block feet = location.getBlock();
-        Block head = location.clone().add(0, 1, 0).getBlock();
-
-        if (!floor.getType().isSolid()) return false;
-        if (!feet.isPassable() || !head.isPassable()) return false;
-        if (feet.isLiquid() || head.isLiquid()) return false;
-
-        Material floorType = floor.getType();
-
-        return floorType != Material.MAGMA_BLOCK
-                && floorType != Material.CACTUS
-                && floorType != Material.CAMPFIRE
-                && floorType != Material.SOUL_CAMPFIRE;
-    }
-
-    private void moveCitizen(Citizen citizen) {
-
-        Entity entity = citizen.getEntity();
-
-        if (!(entity instanceof Villager villager)) {
-            citizen.setMoving(false);
-            return;
         }
 
+        citizen.setDestination(null);
+        citizen.setMoving(false);
+    }
+
+    /*
+     * Search around the expected feet height instead of relying on
+     * getHighestBlockAt(), which can select an unrelated block above the slab.
+     */
+    private Location findSlabSurface(World world, double x, double z, double expectedY) {
+        int blockX = (int) Math.floor(x);
+        int blockZ = (int) Math.floor(z);
+        int baseY = (int) Math.floor(expectedY);
+
+        Location best = null;
+        double bestDifference = Double.MAX_VALUE;
+
+        for (int blockY = baseY - 2; blockY <= baseY + 1; blockY++) {
+            Block floor = world.getBlockAt(blockX, blockY, blockZ);
+            if (floor.getType() != Material.SMOOTH_STONE_SLAB) continue;
+            if (!(floor.getBlockData() instanceof Slab slab)) continue;
+
+            double surfaceY = floor.getY() + (slab.getType() == Slab.Type.BOTTOM ? 0.5 : 1.0);
+            double difference = Math.abs(surfaceY - expectedY);
+            if (difference > HEIGHT_TOLERANCE || difference >= bestDifference) continue;
+
+            // Check the two air spaces above the actual collision surface.
+            int feetY = (int) Math.floor(surfaceY + 0.51);
+            int headY = (int) Math.floor(surfaceY + 1.51);
+            Block feet = world.getBlockAt(blockX, feetY, blockZ);
+            Block head = world.getBlockAt(blockX, headY, blockZ);
+            if (!feet.isPassable() || !head.isPassable()) continue;
+
+            best = new Location(world, x, surfaceY, z);
+            bestDifference = difference;
+        }
+
+        return best;
+    }
+
+    private void moveCitizen(Citizen citizen, Villager villager) {
         Location destination = citizen.getDestination();
-
-        if (destination == null
+        if (destination == null || destination.getWorld() == null
                 || !destination.getWorld().equals(villager.getWorld())) {
-
-            citizen.setMoving(false);
+            stopAndReroute(citizen, villager);
             return;
         }
 
         Location current = villager.getLocation();
-
-        Vector direction = destination.toVector()
-                .subtract(current.toVector());
-
+        Vector direction = destination.toVector().subtract(current.toVector());
         direction.setY(0);
 
-        if (direction.lengthSquared() < 0.5) {
-            arrive(citizen);
+        if (direction.lengthSquared() <= 0.04) {
+            messageManager.sendArrivalMessage(citizen);
+            citizen.setMoving(false);
+            citizen.setDestination(null);
+            chooseStraightRoute(citizen, villager);
             return;
         }
 
         direction.normalize();
+        double speed = Math.max(0.05, Math.min(1.0,
+                plugin.getConfig().getDouble("movement.speed", 0.25)));
+        double step = Math.min(speed, current.distance(destination));
+        Location horizontalNext = current.clone().add(direction.clone().multiply(step));
+        Location next = findSlabSurface(villager.getWorld(),
+                horizontalNext.getX(), horizontalNext.getZ(), current.getY());
 
-        double speed = plugin.getConfig()
-                .getDouble("movement.speed", 0.25);
-
-        Location next = current.clone()
-                .add(direction.clone().multiply(speed));
-
-        int x = next.getBlockX();
-        int z = next.getBlockZ();
-
-        World world = next.getWorld();
-
-        if (world == null || !world.isChunkLoaded(x >> 4, z >> 4)) {
-            citizen.setMoving(false);
+        if (next == null || Math.abs(next.getY() - current.getY()) > HEIGHT_TOLERANCE) {
+            stopAndReroute(citizen, villager);
             return;
         }
 
-        int groundY = world.getHighestBlockYAt(x, z);
-        int nextY = groundY + 1;
-
-        if (Math.abs(nextY - current.getBlockY()) > 1) {
-            citizen.setMoving(false);
+        Location origin = citizen.getSpawnLocation();
+        double radius = Math.max(1.0,
+                plugin.getConfig().getDouble("movement.radius", 300.0));
+        if (next.distanceSquared(origin) > radius * radius) {
+            stopAndReroute(citizen, villager);
             return;
         }
 
-        next.setY(nextY);
+        next.setYaw((float) Math.toDegrees(Math.atan2(-direction.getX(), direction.getZ())));
+        next.setPitch(0);
 
-        if (!isSafeLocation(next)) {
-            citizen.setMoving(false);
+        // The invisible carrier moves; the visible player-shaped NPC follows it.
+        if (!villager.teleport(next)) {
+            stopAndReroute(citizen, villager);
             return;
         }
-
-        Location spawn = citizen.getSpawnLocation();
-
-        if (next.distanceSquared(spawn) > MOVEMENT_RADIUS * MOVEMENT_RADIUS) {
-            citizen.setMoving(false);
-            return;
-        }
-
-        next.setYaw((float) Math.toDegrees(
-                Math.atan2(-direction.getX(), direction.getZ())
-        ));
-
-        villager.teleport(next);
-
-        // Synchronize the visible player NPC with the hidden villager.
+        villager.setSilent(true);
         npcManager.updateNpc(citizen.getId(), next);
     }
 
-    private void arrive(Citizen citizen) {
-
+    private void stopAndReroute(Citizen citizen, Villager villager) {
         citizen.setMoving(false);
         citizen.setDestination(null);
-
-        messageManager.sendArrivalMessage(citizen);
+        chooseStraightRoute(citizen, villager);
     }
 
     public void start() {
-
-        long interval = Math.max(
-                1L,
-                plugin.getConfig().getLong("movement.update-interval", 2)
-        );
-
+        long interval = Math.max(1L,
+                plugin.getConfig().getLong("movement.update-interval", 2));
         runTaskTimer(plugin, 1L, interval);
     }
 }

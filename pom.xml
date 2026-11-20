@@ -41,6 +41,13 @@
         </dependency>
 
         <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.11.0</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <dependency>
             <groupId>com.github.retrooper</groupId>
             <artifactId>packetevents-spigot</artifactId>
             <version>2.14.0</version>
@@ -83,12 +90,7 @@
                                     <shadedPattern>com.aicitizens.libs.packetevents.impl</shadedPattern>
                                 </relocation>
 
-                                <relocation>
-                                    <pattern>net.kyori</pattern>
-                                    <shadedPattern>com.aicitizens.libs.kyori</shadedPattern>
-                                </relocation>
-
-                                <relocation>
+                                    <relocation>
                                     <pattern>com.google.gson</pattern>
                                     <shadedPattern>com.aicitizens.libs.gson</shadedPattern>
                                 </relocation>
