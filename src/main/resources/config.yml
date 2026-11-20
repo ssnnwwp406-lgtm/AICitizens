@@ -18,9 +18,8 @@ movement:
   enabled: false
   speed: 0.22
   update-interval: 2
-  # Recorded route playback speed. Return is faster by default.
+  # Same recorded playback speed is used in both directions.
   forward-speed: 1.0
-  return-speed: 2.5
 
 messages:
   enabled: true
