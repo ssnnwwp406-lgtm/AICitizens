@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.EnumSet;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -106,10 +107,22 @@ public class CitizenNpcManager implements Listener {
     }
 
     private void ensureTabEntry(NPC npc, Object channel) {
+        // ADD_PLAYER creates the profile; UPDATE_LISTED explicitly marks it as
+        // visible in the tab list on modern Minecraft versions (1.19.3+).
+        WrapperPlayServerPlayerInfoUpdate.PlayerInfo info = npc.getModernPlayerInfoData();
+        info.setListed(true);
+        info.setDisplayName(npc.getTabName());
+        info.setLatency(npc.getDisplayPing());
+
+        EnumSet<WrapperPlayServerPlayerInfoUpdate.Action> actions = EnumSet.of(
+                WrapperPlayServerPlayerInfoUpdate.Action.ADD_PLAYER,
+                WrapperPlayServerPlayerInfoUpdate.Action.UPDATE_LISTED,
+                WrapperPlayServerPlayerInfoUpdate.Action.UPDATE_DISPLAY_NAME,
+                WrapperPlayServerPlayerInfoUpdate.Action.UPDATE_LATENCY
+        );
+
         PacketEvents.getAPI().getProtocolManager().sendPacket(channel,
-                new WrapperPlayServerPlayerInfoUpdate(
-                        WrapperPlayServerPlayerInfoUpdate.Action.ADD_PLAYER,
-                        npc.getModernPlayerInfoData()));
+                new WrapperPlayServerPlayerInfoUpdate(actions, info));
     }
 
     private void refreshTabEntries() {
