@@ -26,6 +26,7 @@ public final class CitizenPathManager {
     private final Map<UUID, List<PathFrame>> routes = new HashMap<>();
     private final Map<UUID, Double> indexes = new HashMap<>();
     private final Map<UUID, Integer> directions = new HashMap<>();
+    private final Map<UUID, Float> turnOffsets = new HashMap<>();
     private final Map<UUID, List<PathFrame>> recordings = new HashMap<>();
     private final Map<UUID, BukkitTask> recordingTasks = new HashMap<>();
     private final Set<UUID> paused = new HashSet<>();
@@ -89,6 +90,7 @@ public final class CitizenPathManager {
         routes.put(citizen.getId(), cloneFrames(frames));
         indexes.put(citizen.getId(), 0.0);
         directions.put(citizen.getId(), 1);
+        turnOffsets.put(citizen.getId(), 0.0f);
         paused.remove(citizen.getId());
         saveRoute(citizen);
         return true;
@@ -119,6 +121,7 @@ public final class CitizenPathManager {
         routes.remove(id);
         indexes.remove(id);
         directions.remove(id);
+        turnOffsets.remove(id);
         paused.add(id);
         return existed;
     }
@@ -131,6 +134,7 @@ public final class CitizenPathManager {
         routes.remove(id);
         indexes.remove(id);
         directions.remove(id);
+        turnOffsets.remove(id);
         paused.remove(id);
         data.set("routes." + key(citizen), null);
         saveFile();
@@ -151,30 +155,36 @@ public final class CitizenPathManager {
             double lastIndex = route.size() - 1.0;
             if (!Double.isFinite(cursor) || cursor < 0.0 || cursor > lastIndex) cursor = 0.0;
 
-            double forwardSpeed = Math.max(0.1, plugin.getConfig().getDouble("movement.forward-speed", 1.0));
-            double returnSpeed = Math.max(0.1, plugin.getConfig().getDouble("movement.return-speed", 2.5));
-
-            // Turn around immediately at the route endpoints. The return trip can
-            // move through more recorded samples per tick without making the
-            // visible motion choppy because positions are interpolated below.
+            // One recorded sample per tick in BOTH directions. At the endpoint
+            // reverse direction immediately; do not pause or accelerate the return.
+            double routeSpeed = Math.max(0.1, plugin.getConfig().getDouble("movement.forward-speed", 1.0));
             if (direction >= 0) {
-                cursor += forwardSpeed;
+                cursor += routeSpeed;
                 if (cursor >= lastIndex) {
                     cursor = lastIndex;
                     direction = -1;
                 }
             } else {
-                cursor -= returnSpeed;
+                cursor -= routeSpeed;
                 if (cursor <= 0.0) {
                     cursor = 0.0;
                     direction = 1;
                 }
             }
 
+            float targetOffset = direction < 0 ? 180.0f : 0.0f;
+            float currentOffset = turnOffsets.getOrDefault(id, 0.0f);
+            float offsetDelta = wrapAngle(targetOffset - currentOffset);
+            float maxTurnStep = 30.0f;
+            if (Math.abs(offsetDelta) <= maxTurnStep) currentOffset = targetOffset;
+            else currentOffset += Math.copySign(maxTurnStep, offsetDelta);
+            currentOffset = normalizeAngle(currentOffset);
+            turnOffsets.put(id, currentOffset);
+
             indexes.put(id, cursor);
             directions.put(id, direction);
 
-            Location next = interpolate(route, cursor);
+            Location next = interpolate(route, cursor, currentOffset);
             if (next == null || next.getWorld() == null || !next.getWorld().equals(villager.getWorld())) continue;
 
             if (villager.teleport(next)) {
@@ -184,7 +194,7 @@ public final class CitizenPathManager {
         }
     }
 
-    private Location interpolate(List<PathFrame> route, double cursor) {
+    private Location interpolate(List<PathFrame> route, double cursor, float turnOffset) {
         if (route == null || route.isEmpty()) return null;
         int from = Math.max(0, Math.min(route.size() - 1, (int) Math.floor(cursor)));
         int to = Math.min(route.size() - 1, from + 1);
@@ -195,13 +205,22 @@ public final class CitizenPathManager {
         if (a.getWorld() == null || !a.getWorld().equals(b.getWorld())) return a.clone();
 
         float yawDelta = ((b.getYaw() - a.getYaw() + 540.0f) % 360.0f) - 180.0f;
-        float yaw = a.getYaw() + (float) (yawDelta * alpha);
+        float yaw = normalizeAngle(a.getYaw() + (float) (yawDelta * alpha) + turnOffset);
         float pitch = a.getPitch() + (b.getPitch() - a.getPitch()) * (float) alpha;
         return new Location(a.getWorld(),
                 a.getX() + (b.getX() - a.getX()) * alpha,
                 a.getY() + (b.getY() - a.getY()) * alpha,
                 a.getZ() + (b.getZ() - a.getZ()) * alpha,
                 yaw, pitch);
+    }
+
+    private float wrapAngle(float angle) {
+        return ((angle + 540.0f) % 360.0f) - 180.0f;
+    }
+
+    private float normalizeAngle(float angle) {
+        float normalized = angle % 360.0f;
+        return normalized < 0.0f ? normalized + 360.0f : normalized;
     }
 
     private void loadRoutes() {
@@ -243,6 +262,7 @@ public final class CitizenPathManager {
         routes.put(citizen.getId(), cloneFrames(frames));
         indexes.put(citizen.getId(), 0.0);
         directions.put(citizen.getId(), 1);
+        turnOffsets.put(citizen.getId(), 0.0f);
     }
 
     private void saveRoute(Citizen citizen) {
