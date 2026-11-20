@@ -24,7 +24,7 @@ public final class CitizenPathManager {
     private final File file;
     private final YamlConfiguration data;
     private final Map<UUID, List<PathFrame>> routes = new HashMap<>();
-    private final Map<UUID, Integer> indexes = new HashMap<>();
+    private final Map<UUID, Double> indexes = new HashMap<>();
     private final Map<UUID, Integer> directions = new HashMap<>();
     private final Map<UUID, List<PathFrame>> recordings = new HashMap<>();
     private final Map<UUID, BukkitTask> recordingTasks = new HashMap<>();
@@ -87,7 +87,7 @@ public final class CitizenPathManager {
                 frame.location().getWorld() == null || !world.equals(frame.location().getWorld()))) return false;
 
         routes.put(citizen.getId(), cloneFrames(frames));
-        indexes.put(citizen.getId(), 0);
+        indexes.put(citizen.getId(), 0.0);
         directions.put(citizen.getId(), 1);
         paused.remove(citizen.getId());
         saveRoute(citizen);
@@ -146,27 +146,62 @@ public final class CitizenPathManager {
             Entity entity = citizen.getEntity();
             if (!(entity instanceof Villager villager) || !villager.isValid()) continue;
 
-            int index = indexes.getOrDefault(id, 0);
+            double cursor = indexes.getOrDefault(id, 0.0);
             int direction = directions.getOrDefault(id, 1);
-            if (index < 0 || index >= route.size()) index = 0;
+            double lastIndex = route.size() - 1.0;
+            if (!Double.isFinite(cursor) || cursor < 0.0 || cursor > lastIndex) cursor = 0.0;
 
-            PathFrame frame = route.get(index);
-            Location next = frame.location().clone();
-            if (next.getWorld() == null || !next.getWorld().equals(villager.getWorld())) continue;
+            double forwardSpeed = Math.max(0.1, plugin.getConfig().getDouble("movement.forward-speed", 1.0));
+            double returnSpeed = Math.max(0.1, plugin.getConfig().getDouble("movement.return-speed", 2.5));
 
-            if (index == route.size() - 1) direction = -1;
-            else if (index == 0) direction = 1;
+            // Turn around immediately at the route endpoints. The return trip can
+            // move through more recorded samples per tick without making the
+            // visible motion choppy because positions are interpolated below.
+            if (direction >= 0) {
+                cursor += forwardSpeed;
+                if (cursor >= lastIndex) {
+                    cursor = lastIndex;
+                    direction = -1;
+                }
+            } else {
+                cursor -= returnSpeed;
+                if (cursor <= 0.0) {
+                    cursor = 0.0;
+                    direction = 1;
+                }
+            }
 
-            int nextIndex = index + direction;
-            if (nextIndex < 0 || nextIndex >= route.size()) nextIndex = index;
-            indexes.put(id, nextIndex);
+            indexes.put(id, cursor);
             directions.put(id, direction);
+
+            Location next = interpolate(route, cursor);
+            if (next == null || next.getWorld() == null || !next.getWorld().equals(villager.getWorld())) continue;
 
             if (villager.teleport(next)) {
                 villager.setSilent(true);
                 npcs.updateNpc(id, next);
             }
         }
+    }
+
+    private Location interpolate(List<PathFrame> route, double cursor) {
+        if (route == null || route.isEmpty()) return null;
+        int from = Math.max(0, Math.min(route.size() - 1, (int) Math.floor(cursor)));
+        int to = Math.min(route.size() - 1, from + 1);
+        double alpha = Math.max(0.0, Math.min(1.0, cursor - from));
+
+        Location a = route.get(from).location();
+        Location b = route.get(to).location();
+        if (a.getWorld() == null || !a.getWorld().equals(b.getWorld())) return a.clone();
+
+        float yawDelta = ((b.getYaw() - a.getYaw() + 540.0f) % 360.0f) - 180.0f;
+        float yaw = a.getYaw() + (float) (yawDelta * alpha);
+        float pitch = a.getPitch() + (b.getPitch() - a.getPitch()) * (float) alpha;
+        return new Location(a.getWorld(),
+                a.getX() + (b.getX() - a.getX()) * alpha,
+                a.getY() + (b.getY() - a.getY()) * alpha,
+                a.getZ() + (b.getZ() - a.getZ()) * alpha,
+                yaw, pitch);
     }
 
     private void loadRoutes() {
@@ -206,7 +241,7 @@ public final class CitizenPathManager {
 
     private void attachRoute(Citizen citizen, List<PathFrame> frames) {
         routes.put(citizen.getId(), cloneFrames(frames));
-        indexes.put(citizen.getId(), 0);
+        indexes.put(citizen.getId(), 0.0);
         directions.put(citizen.getId(), 1);
     }
 
